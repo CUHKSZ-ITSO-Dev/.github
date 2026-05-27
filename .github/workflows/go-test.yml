@@ -1,0 +1,391 @@
+name: Go 自动化回归测试
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: false
+        type: string
+        default: "."
+      go-version:
+        required: false
+        type: string
+        default: ""
+      go-version-file:
+        required: false
+        type: string
+        default: ""
+      cache-dependency-path:
+        required: false
+        type: string
+        default: "**/go.sum"
+      changed-paths:
+        required: false
+        type: string
+        default: |
+          **/*.go
+          go.mod
+          **/go.mod
+          go.sum
+          **/go.sum
+          .golangci.yml
+          **/.golangci.yml
+          .golangci.yaml
+          **/.golangci.yaml
+      max-shards:
+        required: false
+        type: number
+        default: 4
+      packages-per-shard:
+        required: false
+        type: number
+        default: 20
+      test-flags:
+        required: false
+        type: string
+        default: "-timeout 10m"
+      database-kind:
+        required: false
+        type: string
+        default: none
+      database-name:
+        required: false
+        type: string
+        default: go_test
+      app-database-name:
+        required: false
+        type: string
+        default: ""
+      lfs-include:
+        required: false
+        type: string
+        default: ""
+      cgo-enabled:
+        required: false
+        type: string
+        default: ""
+      cgo-ldflags:
+        required: false
+        type: string
+        default: ""
+      skip-draft-pr:
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  filter:
+    name: 分配测试
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      shard_count: ${{ steps.shards.outputs.shard_count || steps.plan.outputs.shard_count }}
+      shard_list: ${{ steps.shards.outputs.shard_list || steps.plan.outputs.shard_list }}
+    steps:
+      - name: 准备路径过滤配置
+        id: filter-config
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+        env:
+          CHANGED_PATHS: ${{ inputs.changed-paths }}
+        run: |
+          python3 <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+
+          print("filters<<EOF")
+          print("changed:")
+          for pattern in os.environ["CHANGED_PATHS"].splitlines():
+              pattern = pattern.strip()
+              if pattern:
+                  print(f"  - {pattern!r}")
+          print("EOF")
+          PY
+
+      - uses: actions/checkout@v6
+        if: github.event_name == 'push'
+        with:
+          fetch-depth: 0
+
+      - name: 检查是否有 Go 相关改动
+        id: check
+        uses: dorny/paths-filter@v4
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+        with:
+          filters: ${{ steps.filter-config.outputs.filters }}
+          token: ${{ github.token }}
+
+      - name: 判断是否执行 Go 测试
+        id: plan
+        env:
+          FILTER_OUTPUT: ${{ steps.check.outputs.changed }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs.skip-draft-pr }}" = "true" ] &&
+            [ "${{ github.event_name }}" = "pull_request" ] &&
+            [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "shard_count=1" >> "$GITHUB_OUTPUT"
+            echo "shard_list=[1]" >> "$GITHUB_OUTPUT"
+            echo "草稿 PR 跳过 Go 测试，门禁返回成功。"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.event_name }}" != "push" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$FILTER_OUTPUT" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "shard_count=1" >> "$GITHUB_OUTPUT"
+            echo "shard_list=[1]" >> "$GITHUB_OUTPUT"
+            echo "PR 无 Go 相关改动，跳过。"
+          fi
+
+      - uses: actions/checkout@v6
+        if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
+
+      - name: 自动计算测试分片
+        id: shards
+        if: steps.plan.outputs.run == 'true'
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          MAX_SHARDS: ${{ inputs.max-shards }}
+          PACKAGES_PER_SHARD: ${{ inputs.packages-per-shard }}
+        run: |
+          set -euo pipefail
+
+          cd "$WORKING_DIRECTORY"
+          package_count=$(git ls-files '*.go' |
+            xargs -r -n1 dirname |
+            sort -u |
+            wc -l |
+            tr -d ' ')
+
+          if [ "$package_count" -lt 1 ]; then
+            shard_count=1
+          else
+            shard_count=$(((package_count + PACKAGES_PER_SHARD - 1) / PACKAGES_PER_SHARD))
+          fi
+
+          if [ "$shard_count" -lt 1 ]; then
+            shard_count=1
+          fi
+          if [ "$shard_count" -gt "$MAX_SHARDS" ]; then
+            shard_count="$MAX_SHARDS"
+          fi
+
+          shard_list="["
+          for shard in $(seq 1 "$shard_count"); do
+            if [ "$shard" -gt 1 ]; then
+              shard_list="${shard_list},"
+            fi
+            shard_list="${shard_list}${shard}"
+          done
+          shard_list="${shard_list}]"
+
+          echo "检测到 ${package_count} 个测试包，自动分配 ${shard_count} 个分片。"
+          echo "shard_count=${shard_count}" >> "$GITHUB_OUTPUT"
+          echo "shard_list=${shard_list}" >> "$GITHUB_OUTPUT"
+
+  shard:
+    name: 并行测试 ${{ matrix.shard }}/${{ needs.filter.outputs.shard_count }}
+    needs: filter
+    if: needs.filter.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.filter.outputs.shard_list) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: 恢复 Git LFS 缓存
+        id: lfs
+        if: inputs.lfs-include != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ github.repository }}-${{ github.sha }}
+          restore-keys: lfs-${{ github.repository }}-
+
+      - name: 拉取 Git LFS 文件
+        if: inputs.lfs-include != ''
+        run: |
+          git lfs pull
+          git lfs pull --include="${{ inputs.lfs-include }}"
+
+      - name: 保存 Git LFS 缓存
+        if: inputs.lfs-include != '' && matrix.shard == 1 && steps.lfs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .git/lfs
+          key: ${{ steps.lfs.outputs.cache-primary-key }}
+
+      - uses: actions/setup-go@v6
+        if: inputs.go-version-file != ''
+        with:
+          cache: false
+          go-version-file: ${{ inputs.go-version-file }}
+
+      - uses: actions/setup-go@v6
+        if: inputs.go-version-file == '' && inputs.go-version != ''
+        with:
+          cache: false
+          go-version: ${{ inputs.go-version }}
+
+      - uses: actions/setup-go@v6
+        if: inputs.go-version-file == '' && inputs.go-version == ''
+        with:
+          cache: false
+          go-version-file: ${{ inputs.working-directory }}/go.mod
+
+      - name: 恢复 Go 缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-test-${{ runner.os }}-${{ hashFiles(inputs.cache-dependency-path) }}-${{ github.sha }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ hashFiles(inputs.cache-dependency-path) }}-
+            go-test-${{ runner.os }}-
+
+      - name: 准备测试数据库参数
+        run: |
+          set -euo pipefail
+
+          case "${{ inputs.database-kind }}" in
+            none|postgres|sqlserver)
+              ;;
+            *)
+              echo "::error::database-kind 仅支持 none、postgres 或 sqlserver。"
+              exit 1
+              ;;
+          esac
+
+          if [ "${{ inputs.database-kind }}" = "postgres" ] && [ -n "${{ inputs.app-database-name }}" ]; then
+            echo "MIGRATION_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/${{ inputs.app-database-name }}?sslmode=disable" >> "$GITHUB_ENV"
+            echo "MIGRATION_TEST_GOFRAME_LINK=pgsql:postgres:postgres@tcp(localhost:5432)/${{ inputs.app-database-name }}" >> "$GITHUB_ENV"
+          fi
+
+          if [ "${{ inputs.database-kind }}" = "sqlserver" ] && [ -n "${{ inputs.app-database-name }}" ]; then
+            echo "MIGRATION_TEST_DATABASE_URL=sqlserver://sa:DevPass123%21@localhost:1433?database=${{ inputs.app-database-name }}&encrypt=disable" >> "$GITHUB_ENV"
+            echo "MIGRATION_TEST_GOFRAME_LINK=mssql:sa:DevPass123!@tcp(localhost:1433)/${{ inputs.app-database-name }}?encrypt=disable" >> "$GITHUB_ENV"
+          fi
+
+      - name: 启动 PostgreSQL
+        if: inputs.database-kind == 'postgres'
+        run: |
+          set -euo pipefail
+
+          docker run -d --name go-test-postgres \
+            -e POSTGRES_DB="${{ inputs.database-name }}" \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -p 5432:5432 \
+            postgres:17
+
+          for i in {1..30}; do
+            if docker exec go-test-postgres pg_isready -U postgres -d "${{ inputs.database-name }}" >/dev/null 2>&1; then
+              echo "PostgreSQL 已就绪。"
+              if [ -n "${{ inputs.app-database-name }}" ]; then
+                docker exec go-test-postgres createdb -U postgres "${{ inputs.app-database-name }}"
+              fi
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::PostgreSQL 未就绪"
+          exit 1
+
+      - name: 启动 SQL Server
+        if: inputs.database-kind == 'sqlserver'
+        run: |
+          set -euo pipefail
+
+          docker run -d --name go-test-sqlserver \
+            -e ACCEPT_EULA=Y \
+            -e 'MSSQL_SA_PASSWORD=DevPass123!' \
+            -p 1433:1433 \
+            mcr.microsoft.com/mssql/server:2022-latest
+
+          for i in {1..60}; do
+            if docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
+              echo "SQL Server 已就绪。"
+              docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P 'DevPass123!' -C \
+                -Q "CREATE DATABASE [${{ inputs.database-name }}]"
+              if [ -n "${{ inputs.app-database-name }}" ]; then
+                docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                  -S localhost -U sa -P 'DevPass123!' -C \
+                  -Q "CREATE DATABASE [${{ inputs.app-database-name }}]"
+              fi
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::SQL Server 未就绪"
+          exit 1
+
+      - name: 运行 Go 测试
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
+          PGPASSWORD: postgres
+          SHARD: ${{ matrix.shard }}
+          SHARD_TOTAL: ${{ needs.filter.outputs.shard_count }}
+          TEST_FLAGS: ${{ inputs.test-flags }}
+        run: |
+          set -euo pipefail
+
+          all_packages=$(git ls-files '*.go' |
+            xargs -r -n1 dirname |
+            sort -u |
+            while read -r dir; do
+              if [ "$dir" = "." ]; then
+                echo "."
+              else
+                echo "./$dir"
+              fi
+            done)
+          packages=$(printf '%s\n' "$all_packages" | awk -v s="$SHARD" -v t="$SHARD_TOTAL" '(NR-1)%t == s-1')
+
+          if [ -z "$packages" ]; then
+            echo "第 ${SHARD} 片没有分到测试包，跳过。"
+            exit 0
+          fi
+
+          echo "第 ${SHARD}/${SHARD_TOTAL} 片将运行以下包："
+          printf '%s\n' "$packages"
+          go test ${TEST_FLAGS} $packages
+
+  test:
+    name: 结果门禁
+    needs: [filter, shard]
+    if: always() && needs.filter.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总测试结果
+        run: |
+          set -euo pipefail
+
+          if [ "${{ needs.filter.outputs.run }}" != "true" ]; then
+            echo "无 Go 相关改动，跳过。"
+            exit 0
+          fi
+
+          result="${{ needs.shard.result }}"
+          if [ "$result" != "success" ]; then
+            echo "::error::并行测试未通过：$result"
+            exit 1
+          fi
+
+          echo "全部并行测试通过。"

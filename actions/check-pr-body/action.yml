@@ -1,0 +1,85 @@
+name: 检查 PR 描述
+description: 检查 PR 描述是否填写了组织要求的必要小节。
+
+inputs:
+  body:
+    description: PR 描述正文。
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: 检查必要小节
+      shell: bash
+      env:
+        PR_BODY: ${{ inputs.body }}
+      run: |
+        export LC_ALL=C.UTF-8
+        export LANG=C.UTF-8
+
+        python3 <<'PY'
+        import os
+        import re
+        import sys
+
+        body = os.environ.get("PR_BODY", "")
+        required_sections = ["背景", "改动", "影响", "截图 / 验证材料"]
+
+        sections = {}
+        current = None
+        in_code_block = False
+        fence_char = ""
+        fence_len = 0
+
+        for line in body.splitlines():
+            fence_match = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
+            if fence_match:
+                marker = fence_match.group(1)
+                if not in_code_block:
+                    in_code_block = True
+                    fence_char = marker[0]
+                    fence_len = len(marker)
+                elif marker[0] == fence_char and len(marker) >= fence_len:
+                    in_code_block = False
+                    fence_char = ""
+                    fence_len = 0
+
+                if current is not None:
+                    sections[current].append(line)
+                continue
+
+            if not in_code_block:
+                match = re.match(r"^\s{0,3}##\s+(.+?)(?:\s+#+)?\s*$", line)
+                if match:
+                    current = match.group(1).strip()
+                    sections.setdefault(current, [])
+                    continue
+
+            if current is not None:
+                sections[current].append(line)
+
+        def normalize(content: str) -> str:
+            content = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
+            content = re.sub(r"(?m)^\s*[-*]\s*$", "", content)
+            content = re.sub(r"(?m)^\s*[-*]\s*\[\s?\]\s*$", "", content)
+            return content.strip()
+
+        errors = []
+
+        for title in required_sections:
+            if title not in sections:
+                errors.append(f"缺少 `## {title}` 小节")
+                continue
+
+            content = normalize("\n".join(sections[title]))
+            if not content:
+                errors.append(f"`## {title}` 小节缺少有效内容")
+
+        if errors:
+            print("::error::PR 描述未满足模板要求。")
+            for error in errors:
+                print(f"- {error}")
+            sys.exit(1)
+
+        print("PR 描述检查通过。")
+        PY

@@ -1,0 +1,172 @@
+name: Go 代码检查
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: false
+        type: string
+        default: "."
+      go-version:
+        required: false
+        type: string
+        default: "1.26"
+      go-version-file:
+        required: false
+        type: string
+        default: ""
+      cache-dependency-path:
+        required: false
+        type: string
+        default: ""
+      golangci-version:
+        required: false
+        type: string
+        default: latest
+      changed-paths:
+        required: false
+        type: string
+        default: |
+          **/*.go
+          go.mod
+          **/go.mod
+          go.sum
+          **/go.sum
+          .golangci.yml
+          **/.golangci.yml
+          .golangci.yaml
+          **/.golangci.yaml
+      lfs-include:
+        required: false
+        type: string
+        default: ""
+      cgo-enabled:
+        required: false
+        type: string
+        default: ""
+      cgo-ldflags:
+        required: false
+        type: string
+        default: ""
+      skip-draft-pr:
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  golangci:
+    name: Go 代码检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: 准备路径过滤配置
+        id: filter-config
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+        env:
+          CHANGED_PATHS: ${{ inputs.changed-paths }}
+        run: |
+          python3 <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+
+          print("filters<<EOF")
+          print("changed:")
+          for pattern in os.environ["CHANGED_PATHS"].splitlines():
+              pattern = pattern.strip()
+              if pattern:
+                  print(f"  - {pattern!r}")
+          print("EOF")
+          PY
+
+      - uses: actions/checkout@v6
+        if: github.event_name == 'push'
+        with:
+          fetch-depth: 0
+
+      - name: 检查是否有 Go 相关改动
+        id: check
+        uses: dorny/paths-filter@v4
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+        with:
+          filters: ${{ steps.filter-config.outputs.filters }}
+          token: ${{ github.token }}
+
+      - name: 判断是否执行 Go 代码检查
+        id: plan
+        env:
+          FILTER_OUTPUT: ${{ steps.check.outputs.changed }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs.skip-draft-pr }}" = "true" ] &&
+            [ "${{ github.event_name }}" = "pull_request" ] &&
+            [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "草稿 PR 跳过 Go 代码检查，门禁返回成功。"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.event_name }}" != "push" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$FILTER_OUTPUT" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "PR 无 Go 相关改动，跳过。"
+          fi
+
+      - uses: actions/checkout@v6
+        if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
+
+      - name: 恢复 Git LFS 缓存
+        id: lfs
+        if: steps.plan.outputs.run == 'true' && inputs.lfs-include != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ github.repository }}-${{ github.sha }}
+          restore-keys: lfs-${{ github.repository }}-
+
+      - name: 拉取 Git LFS 文件
+        if: steps.plan.outputs.run == 'true' && inputs.lfs-include != ''
+        run: |
+          git lfs pull
+          git lfs pull --include="${{ inputs.lfs-include }}"
+
+      - name: 保存 Git LFS 缓存
+        if: steps.plan.outputs.run == 'true' && inputs.lfs-include != '' && steps.lfs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .git/lfs
+          key: ${{ steps.lfs.outputs.cache-primary-key }}
+
+      - uses: actions/setup-go@v6
+        if: steps.plan.outputs.run == 'true' && inputs.go-version-file == ''
+        with:
+          cache: true
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+          go-version: ${{ inputs.go-version }}
+
+      - uses: actions/setup-go@v6
+        if: steps.plan.outputs.run == 'true' && inputs.go-version-file != ''
+        with:
+          cache: true
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+          go-version-file: ${{ inputs.go-version-file }}
+
+      - name: 运行 golangci-lint
+        if: steps.plan.outputs.run == 'true'
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: ${{ inputs.golangci-version }}
+          working-directory: ${{ inputs.working-directory }}
+          github-token: ${{ github.token }}
+        env:
+          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
+
+      - name: 跳过 Go 代码检查
+        if: steps.plan.outputs.run != 'true'
+        run: echo "没有 Go 相关改动，跳过 golangci-lint。"

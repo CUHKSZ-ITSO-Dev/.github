@@ -1,0 +1,48 @@
+name: 自动设置 PR 负责人
+
+on:
+  workflow_call:
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  assign-author:
+    name: 设置负责人
+    runs-on: ubuntu-latest
+    steps:
+      - name: 无负责人时设置 PR 作者
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed("当前事件不是 pull_request，无法设置负责人。");
+              return;
+            }
+
+            if (pr.user.type === "Bot") {
+              core.info("跳过机器人账号创建的 PR。");
+              return;
+            }
+
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            if (issue.assignees.length > 0) {
+              core.info("PR 已有负责人，跳过自动设置。");
+              return;
+            }
+
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              assignees: [pr.user.login],
+            });
+
+            core.info(`已将 PR 作者 ${pr.user.login} 设为负责人。`);
