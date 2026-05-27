@@ -1,0 +1,133 @@
+name: Golangci-lint Linter 检查
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: false
+        type: string
+        default: "."
+      go-version:
+        required: false
+        type: string
+        default: "1.26"
+      go-version-file:
+        required: false
+        type: string
+        default: ""
+      cache-dependency-path:
+        required: false
+        type: string
+        default: ""
+      golangci-version:
+        required: false
+        type: string
+        default: latest
+      changed-file-pattern:
+        required: false
+        type: string
+        default: '^.*\.go$|^go\.(mod|sum)$|^\.golangci\.ya?ml$'
+      lfs-include:
+        required: false
+        type: string
+        default: ""
+      cgo-enabled:
+        required: false
+        type: string
+        default: ""
+      cgo-ldflags:
+        required: false
+        type: string
+        default: ""
+      skip-draft-pr:
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  golangci:
+    name: golangci
+    runs-on: ubuntu-latest
+    if: inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - name: 检查是否有 Go 相关改动
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED_FILE_PATTERN: ${{ inputs.changed-file-pattern }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            changed_files=$(gh api --paginate \
+              "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
+              --jq '.[].filename')
+
+            echo "$changed_files"
+            if printf '%s\n' "$changed_files" | grep -Eq "$CHANGED_FILE_PATTERN"; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "PR 无 Go 相关改动，跳过。"
+            fi
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.check.outputs.run == 'true'
+
+      - name: 恢复 Git LFS 缓存
+        id: lfs
+        if: steps.check.outputs.run == 'true' && inputs.lfs-include != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ github.repository }}-${{ github.sha }}
+          restore-keys: lfs-${{ github.repository }}-
+
+      - name: 拉取 Git LFS 文件
+        if: steps.check.outputs.run == 'true' && inputs.lfs-include != ''
+        run: |
+          git lfs pull
+          git lfs pull --include="${{ inputs.lfs-include }}"
+
+      - name: 保存 Git LFS 缓存
+        if: steps.check.outputs.run == 'true' && inputs.lfs-include != '' && steps.lfs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .git/lfs
+          key: ${{ steps.lfs.outputs.cache-primary-key }}
+
+      - uses: actions/setup-go@v6
+        if: steps.check.outputs.run == 'true' && inputs.go-version-file == ''
+        with:
+          cache: true
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+          go-version: ${{ inputs.go-version }}
+
+      - uses: actions/setup-go@v6
+        if: steps.check.outputs.run == 'true' && inputs.go-version-file != ''
+        with:
+          cache: true
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+          go-version-file: ${{ inputs.go-version-file }}
+
+      - name: 运行 golangci-lint
+        if: steps.check.outputs.run == 'true'
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: ${{ inputs.golangci-version }}
+          working-directory: ${{ inputs.working-directory }}
+          github-token: ${{ github.token }}
+        env:
+          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
+
+      - name: 跳过 Go 代码检查
+        if: steps.check.outputs.run != 'true'
+        run: echo "没有 Go 相关改动，跳过 golangci-lint。"
