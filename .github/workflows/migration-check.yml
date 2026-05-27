@@ -111,10 +111,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 拉取 Git LFS 文件
-        if: inputs.lfs-include != ''
-        run: git lfs pull --include="${{ inputs.lfs-include }}"
-
       - name: 准备路径和连接参数
         run: |
           set -euo pipefail
@@ -144,49 +140,6 @@ jobs:
               echo "MIGRATION_TEST_GOFRAME_LINK=mssql:sa:DevPass123!@tcp(localhost:1433)/${APP_DB_NAME}?encrypt=disable" >> "$GITHUB_ENV"
             fi
           fi
-
-      - name: 启动数据库
-        run: |
-          set -euo pipefail
-
-          if [ "$DB_KIND" = "postgres" ]; then
-            docker run -d --name migration-postgres \
-              -e POSTGRES_DB="$DB_NAME" \
-              -e POSTGRES_USER=postgres \
-              -e POSTGRES_PASSWORD=postgres \
-              -p 5432:5432 \
-              postgres:17
-
-            for i in {1..30}; do
-              if docker exec migration-postgres pg_isready -U postgres -d "$DB_NAME" >/dev/null 2>&1; then
-                echo "PostgreSQL 已就绪。"
-                exit 0
-              fi
-              sleep 2
-            done
-            echo "::error::PostgreSQL 未就绪"
-            exit 1
-          fi
-
-          docker run -d --name migration-sqlserver \
-            -e ACCEPT_EULA=Y \
-            -e 'MSSQL_SA_PASSWORD=DevPass123!' \
-            -p 1433:1433 \
-            mcr.microsoft.com/mssql/server:2022-latest
-
-          for i in {1..60}; do
-            if docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
-              -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
-              echo "SQL Server 已就绪。"
-              docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
-                -S localhost -U sa -P 'DevPass123!' -C \
-                -Q "CREATE DATABASE ${DB_NAME}"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "::error::SQL Server 未就绪"
-          exit 1
 
       - name: 判断是否需要执行迁移校验
         id: detect
@@ -234,6 +187,10 @@ jobs:
             echo "没有迁移相关变更，迁移 required check 直接标记成功。"
             echo "has_migration_changes=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: 拉取 Git LFS 文件
+        if: steps.detect.outputs.has_migration_changes == 'true' && inputs.lfs-include != ''
+        run: git lfs pull --include="${{ inputs.lfs-include }}"
 
       - uses: actions/setup-go@v6
         if: steps.detect.outputs.has_migration_changes == 'true' && inputs.go-version-file == ''
@@ -285,6 +242,50 @@ jobs:
             cut -d_ -f1 |
             sed 's/^0*//')
           echo "max_version=$max_version" >> "$GITHUB_OUTPUT"
+
+      - name: 启动数据库
+        if: steps.detect.outputs.has_migration_changes == 'true'
+        run: |
+          set -euo pipefail
+
+          if [ "$DB_KIND" = "postgres" ]; then
+            docker run -d --name migration-postgres \
+              -e POSTGRES_DB="$DB_NAME" \
+              -e POSTGRES_USER=postgres \
+              -e POSTGRES_PASSWORD=postgres \
+              -p 5432:5432 \
+              postgres:17
+
+            for i in {1..30}; do
+              if docker exec migration-postgres pg_isready -U postgres -d "$DB_NAME" >/dev/null 2>&1; then
+                echo "PostgreSQL 已就绪。"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "::error::PostgreSQL 未就绪"
+            exit 1
+          fi
+
+          docker run -d --name migration-sqlserver \
+            -e ACCEPT_EULA=Y \
+            -e 'MSSQL_SA_PASSWORD=DevPass123!' \
+            -p 1433:1433 \
+            mcr.microsoft.com/mssql/server:2022-latest
+
+          for i in {1..60}; do
+            if docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
+              echo "SQL Server 已就绪。"
+              docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P 'DevPass123!' -C \
+                -Q "CREATE DATABASE ${DB_NAME}"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::SQL Server 未就绪"
+          exit 1
 
       - name: 执行空库迁移
         if: steps.detect.outputs.has_migration_changes == 'true'
