@@ -291,6 +291,26 @@ jobs:
           echo "::error::SQL Server 未就绪"
           exit 1
 
+      - name: 等待 SQL Server 数据库就绪
+        if: steps.detect.outputs.has_migration_changes == 'true' && inputs.database-kind == 'sqlserver'
+        env:
+          TARGET_DATABASE: ${{ inputs.database-name }}
+        run: |
+          set -euo pipefail
+
+          for i in {1..30}; do
+            if docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -d "$TARGET_DATABASE" \
+              -Q 'SELECT 1' >/dev/null 2>&1; then
+              echo "SQL Server 数据库 ${TARGET_DATABASE} 已就绪。"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::SQL Server 数据库 ${TARGET_DATABASE} 未就绪"
+          exit 1
+
       - name: 执行空库迁移
         if: steps.detect.outputs.has_migration_changes == 'true'
         working-directory: ${{ inputs.working-directory }}
@@ -523,6 +543,21 @@ jobs:
               docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
                 -S localhost -U sa -P 'DevPass123!' -C \
                 -Q "CREATE DATABASE ${APP_DB_NAME}"
+              app_database_ready=false
+              for i in {1..30}; do
+                if docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                  -S localhost -U sa -P 'DevPass123!' -C -d "$APP_DB_NAME" \
+                  -Q 'SELECT 1' >/dev/null 2>&1; then
+                  echo "SQL Server 数据库 ${APP_DB_NAME} 已就绪。"
+                  app_database_ready=true
+                  break
+                fi
+                sleep 2
+              done
+              if [ "$app_database_ready" != "true" ]; then
+                echo "::error::SQL Server 数据库 ${APP_DB_NAME} 未就绪"
+                exit 1
+              fi
             fi
           fi
 
