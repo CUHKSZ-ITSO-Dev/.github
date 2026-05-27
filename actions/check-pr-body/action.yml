@@ -1,10 +1,14 @@
 name: 检查 PR 描述
-description: 检查 PR 描述是否填写了组织要求的必要小节。
+description: 按公共 PR 模板动态检查 PR 描述是否填写必要小节。
 
 inputs:
   body:
     description: PR 描述正文。
     required: true
+  template-path:
+    description: PR 模板路径；默认读取公共 .github 仓库的模板。
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -13,6 +17,7 @@ runs:
       shell: bash
       env:
         PR_BODY: ${{ inputs.body }}
+        TEMPLATE_PATH: ${{ inputs.template-path }}
       run: |
         export LC_ALL=C.UTF-8
         export LANG=C.UTF-8
@@ -23,7 +28,60 @@ runs:
         import sys
 
         body = os.environ.get("PR_BODY", "")
-        required_sections = ["背景", "改动", "影响", "截图 / 验证材料"]
+        template_path = os.environ.get("TEMPLATE_PATH", "").strip()
+        if not template_path:
+            template_path = os.path.join(
+                os.environ["GITHUB_ACTION_PATH"],
+                "..",
+                "..",
+                ".github",
+                "pull_request_template.md",
+            )
+
+        heading_pattern = re.compile(r"^\s{0,3}##\s+(.+?)(?:\s+#+)?\s*$")
+
+        try:
+            with open(template_path, encoding="utf-8") as template_file:
+                template = template_file.read()
+        except OSError as exc:
+            print(f"::error::读取 PR 模板失败：{template_path}，{exc}")
+            sys.exit(1)
+
+        def extract_required_sections(markdown: str) -> list[str]:
+            sections = []
+            in_code_block = False
+            fence_char = ""
+            fence_len = 0
+
+            for line in markdown.splitlines():
+                fence_match = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
+                if fence_match:
+                    marker = fence_match.group(1)
+                    if not in_code_block:
+                        in_code_block = True
+                        fence_char = marker[0]
+                        fence_len = len(marker)
+                    elif marker[0] == fence_char and len(marker) >= fence_len:
+                        in_code_block = False
+                        fence_char = ""
+                        fence_len = 0
+                    continue
+
+                if in_code_block:
+                    continue
+
+                match = heading_pattern.match(line)
+                if match:
+                    title = match.group(1).strip()
+                    if title:
+                        sections.append(title)
+
+            return sections
+
+        required_sections = extract_required_sections(template)
+        if not required_sections:
+            print(f"::error::PR 模板未定义任何二级标题：{template_path}")
+            sys.exit(1)
 
         sections = {}
         current = None
@@ -49,7 +107,7 @@ runs:
                 continue
 
             if not in_code_block:
-                match = re.match(r"^\s{0,3}##\s+(.+?)(?:\s+#+)?\s*$", line)
+                match = heading_pattern.match(line)
                 if match:
                     current = match.group(1).strip()
                     sections.setdefault(current, [])
@@ -77,6 +135,10 @@ runs:
 
         if errors:
             print("::error::PR 描述未满足模板要求。")
+            print("当前模板要求填写以下小节：")
+            for title in required_sections:
+                print(f"- ## {title}")
+            print("发现的问题：")
             for error in errors:
                 print(f"- {error}")
             sys.exit(1)
