@@ -27,13 +27,33 @@ runs:
 
         sections = {}
         current = None
+        in_code_block = False
+        fence_char = ""
+        fence_len = 0
 
         for line in body.splitlines():
-            match = re.match(r"^##\s+(.+?)\s*$", line)
-            if match:
-                current = match.group(1).strip()
-                sections.setdefault(current, [])
+            fence_match = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
+            if fence_match:
+                marker = fence_match.group(1)
+                if not in_code_block:
+                    in_code_block = True
+                    fence_char = marker[0]
+                    fence_len = len(marker)
+                elif marker[0] == fence_char and len(marker) >= fence_len:
+                    in_code_block = False
+                    fence_char = ""
+                    fence_len = 0
+
+                if current is not None:
+                    sections[current].append(line)
                 continue
+
+            if not in_code_block:
+                match = re.match(r"^\s{0,3}##\s+(.+?)(?:\s+#+)?\s*$", line)
+                if match:
+                    current = match.group(1).strip()
+                    sections.setdefault(current, [])
+                    continue
 
             if current is not None:
                 sections[current].append(line)
