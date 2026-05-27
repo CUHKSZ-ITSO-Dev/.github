@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   pr-check:
-    name: PR 检查
+    name: 检查
     runs-on: ubuntu-latest
     steps:
       - name: 检查 PR 描述

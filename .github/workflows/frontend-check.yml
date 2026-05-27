@@ -59,7 +59,7 @@ permissions:
 
 jobs:
   frontend:
-    name: 前端检查
+    name: 执行
     runs-on: ubuntu-latest
     steps:
       - name: 准备路径过滤配置
