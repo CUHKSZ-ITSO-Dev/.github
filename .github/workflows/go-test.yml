@@ -1,0 +1,285 @@
+name: Go 自动化回归测试
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: false
+        type: string
+        default: "."
+      go-version:
+        required: false
+        type: string
+        default: "1.26"
+      go-version-file:
+        required: false
+        type: string
+        default: ""
+      cache-dependency-path:
+        required: false
+        type: string
+        default: ""
+      changed-file-pattern:
+        required: false
+        type: string
+        default: '^.*\.go$|^go\.(mod|sum)$|^\.golangci\.ya?ml$'
+      shard-count:
+        required: false
+        type: number
+        default: 1
+      shard-list:
+        required: false
+        type: string
+        default: "[1]"
+      test-flags:
+        required: false
+        type: string
+        default: "-timeout 10m"
+      database-kind:
+        required: false
+        type: string
+        default: none
+      database-name:
+        required: false
+        type: string
+        default: go_test
+      app-database-name:
+        required: false
+        type: string
+        default: ""
+      lfs-include:
+        required: false
+        type: string
+        default: ""
+      cgo-enabled:
+        required: false
+        type: string
+        default: ""
+      cgo-ldflags:
+        required: false
+        type: string
+        default: ""
+      skip-draft-pr:
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  filter:
+    name: 分配测试
+    runs-on: ubuntu-latest
+    if: inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - name: 检查是否有 Go 相关改动
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED_FILE_PATTERN: ${{ inputs.changed-file-pattern }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            changed_files=$(gh api --paginate \
+              "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
+              --jq '.[].filename')
+
+            echo "$changed_files"
+            if printf '%s\n' "$changed_files" | grep -Eq "$CHANGED_FILE_PATTERN"; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "PR 无 Go 相关改动，跳过。"
+            fi
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  shard:
+    name: 并行测试 ${{ matrix.shard }}/${{ inputs.shard-count }}
+    needs: filter
+    if: needs.filter.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.shard-list) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 恢复 Git LFS 缓存
+        id: lfs
+        if: inputs.lfs-include != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ github.repository }}-${{ github.sha }}
+          restore-keys: lfs-${{ github.repository }}-
+
+      - name: 拉取 Git LFS 文件
+        if: inputs.lfs-include != ''
+        run: |
+          git lfs pull
+          git lfs pull --include="${{ inputs.lfs-include }}"
+
+      - name: 保存 Git LFS 缓存
+        if: inputs.lfs-include != '' && matrix.shard == 1 && steps.lfs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .git/lfs
+          key: ${{ steps.lfs.outputs.cache-primary-key }}
+
+      - uses: actions/setup-go@v6
+        if: inputs.go-version-file == ''
+        with:
+          cache: false
+          go-version: ${{ inputs.go-version }}
+
+      - uses: actions/setup-go@v6
+        if: inputs.go-version-file != ''
+        with:
+          cache: false
+          go-version-file: ${{ inputs.go-version-file }}
+
+      - name: 恢复 Go 缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-test-${{ runner.os }}-${{ hashFiles(inputs.cache-dependency-path) }}-${{ github.sha }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ hashFiles(inputs.cache-dependency-path) }}-
+            go-test-${{ runner.os }}-
+
+      - name: 准备测试数据库参数
+        run: |
+          set -euo pipefail
+
+          case "${{ inputs.database-kind }}" in
+            none|postgres|sqlserver)
+              ;;
+            *)
+              echo "::error::database-kind 仅支持 none、postgres 或 sqlserver。"
+              exit 1
+              ;;
+          esac
+
+          if [ "${{ inputs.database-kind }}" = "postgres" ] && [ -n "${{ inputs.app-database-name }}" ]; then
+            echo "MIGRATION_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/${{ inputs.app-database-name }}?sslmode=disable" >> "$GITHUB_ENV"
+            echo "MIGRATION_TEST_GOFRAME_LINK=pgsql:postgres:postgres@tcp(localhost:5432)/${{ inputs.app-database-name }}" >> "$GITHUB_ENV"
+          fi
+
+          if [ "${{ inputs.database-kind }}" = "sqlserver" ] && [ -n "${{ inputs.app-database-name }}" ]; then
+            echo "MIGRATION_TEST_DATABASE_URL=sqlserver://sa:DevPass123%21@localhost:1433?database=${{ inputs.app-database-name }}&encrypt=disable" >> "$GITHUB_ENV"
+            echo "MIGRATION_TEST_GOFRAME_LINK=mssql:sa:DevPass123!@tcp(localhost:1433)/${{ inputs.app-database-name }}?encrypt=disable" >> "$GITHUB_ENV"
+          fi
+
+      - name: 启动 PostgreSQL
+        if: inputs.database-kind == 'postgres'
+        run: |
+          set -euo pipefail
+
+          docker run -d --name go-test-postgres \
+            -e POSTGRES_DB="${{ inputs.database-name }}" \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -p 5432:5432 \
+            postgres:17
+
+          for i in {1..30}; do
+            if docker exec go-test-postgres pg_isready -U postgres -d "${{ inputs.database-name }}" >/dev/null 2>&1; then
+              echo "PostgreSQL 已就绪。"
+              if [ -n "${{ inputs.app-database-name }}" ]; then
+                docker exec go-test-postgres createdb -U postgres "${{ inputs.app-database-name }}"
+              fi
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::PostgreSQL 未就绪"
+          exit 1
+
+      - name: 启动 SQL Server
+        if: inputs.database-kind == 'sqlserver'
+        run: |
+          set -euo pipefail
+
+          docker run -d --name go-test-sqlserver \
+            -e ACCEPT_EULA=Y \
+            -e 'MSSQL_SA_PASSWORD=DevPass123!' \
+            -p 1433:1433 \
+            mcr.microsoft.com/mssql/server:2022-latest
+
+          for i in {1..60}; do
+            if docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
+              echo "SQL Server 已就绪。"
+              docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P 'DevPass123!' -C \
+                -Q "CREATE DATABASE [${{ inputs.database-name }}]"
+              if [ -n "${{ inputs.app-database-name }}" ]; then
+                docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                  -S localhost -U sa -P 'DevPass123!' -C \
+                  -Q "CREATE DATABASE [${{ inputs.app-database-name }}]"
+              fi
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::SQL Server 未就绪"
+          exit 1
+
+      - name: 运行 Go 测试
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
+          PGPASSWORD: postgres
+          SHARD: ${{ matrix.shard }}
+          SHARD_TOTAL: ${{ inputs.shard-count }}
+          TEST_FLAGS: ${{ inputs.test-flags }}
+        run: |
+          set -euo pipefail
+
+          all_packages=$(go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./... | sort)
+          packages=$(printf '%s\n' "$all_packages" | awk -v s="$SHARD" -v t="$SHARD_TOTAL" '(NR-1)%t == s-1')
+
+          if [ -z "$packages" ]; then
+            echo "第 ${SHARD} 片没有分到测试包，跳过。"
+            exit 0
+          fi
+
+          echo "第 ${SHARD}/${SHARD_TOTAL} 片将运行以下包："
+          printf '%s\n' "$packages"
+          go test ${TEST_FLAGS} $packages
+
+  test:
+    name: 结果门禁
+    needs: [filter, shard]
+    if: always() && needs.filter.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总测试结果
+        run: |
+          set -euo pipefail
+
+          if [ "${{ needs.filter.outputs.run }}" != "true" ]; then
+            echo "无 Go 相关改动，跳过。"
+            exit 0
+          fi
+
+          result="${{ needs.shard.result }}"
+          if [ "$result" != "success" ]; then
+            echo "::error::并行测试未通过：$result"
+            exit 1
+          fi
+
+          echo "全部并行测试通过。"
