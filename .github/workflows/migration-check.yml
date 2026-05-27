@@ -1,0 +1,512 @@
+name: 数据库迁移检查
+
+on:
+  workflow_call:
+    inputs:
+      database-kind:
+        required: true
+        type: string
+      database-name:
+        required: true
+        type: string
+      working-directory:
+        required: false
+        type: string
+        default: "."
+      migration-dir:
+        required: true
+        type: string
+      migration-path-pattern:
+        required: true
+        type: string
+      go-version:
+        required: false
+        type: string
+        default: "1.26"
+      go-version-file:
+        required: false
+        type: string
+        default: ""
+      go-cache-dependency-path:
+        required: false
+        type: string
+        default: ""
+      migration-tags:
+        required: false
+        type: string
+        default: "postgres"
+      migrate-version:
+        required: false
+        type: string
+        default: "v4.19.1"
+      check-migrations-command:
+        required: false
+        type: string
+        default: "./scripts/check_migrations.sh"
+      lfs-include:
+        required: false
+        type: string
+        default: ""
+      immutable-migration-files:
+        required: false
+        type: boolean
+        default: false
+      check-git-attrs:
+        required: false
+        type: boolean
+        default: false
+      migration-embed-file:
+        required: false
+        type: string
+        default: ""
+      schema-contract:
+        required: false
+        type: string
+        default: ""
+      full-rollback:
+        required: false
+        type: boolean
+        default: false
+      business-table-query:
+        required: false
+        type: string
+        default: ""
+      app-database-name:
+        required: false
+        type: string
+        default: ""
+      binary-check-command:
+        required: false
+        type: string
+        default: ""
+      cgo-enabled:
+        required: false
+        type: string
+        default: ""
+      cgo-ldflags:
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  migration:
+    name: migration
+    runs-on: ubuntu-latest
+    env:
+      DB_KIND: ${{ inputs.database-kind }}
+      DB_NAME: ${{ inputs.database-name }}
+      WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      MIGRATION_DIR: ${{ inputs.migration-dir }}
+      MIGRATION_PATH_PATTERN: ${{ inputs.migration-path-pattern }}
+      MIGRATION_EMBED_FILE: ${{ inputs.migration-embed-file }}
+      SCHEMA_CONTRACT: ${{ inputs.schema-contract }}
+      BUSINESS_TABLE_QUERY: ${{ inputs.business-table-query }}
+      APP_DB_NAME: ${{ inputs.app-database-name }}
+      MIGRATE_CMD: go run -tags ${{ inputs.migration-tags }} github.com/golang-migrate/migrate/v4/cmd/migrate@${{ inputs.migrate-version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 拉取 Git LFS 文件
+        if: inputs.lfs-include != ''
+        run: git lfs pull --include="${{ inputs.lfs-include }}"
+
+      - name: 准备路径和连接参数
+        run: |
+          set -euo pipefail
+
+          if [ "$DB_KIND" != "postgres" ] && [ "$DB_KIND" != "sqlserver" ]; then
+            echo "::error::database-kind 仅支持 postgres 或 sqlserver，实际为 ${DB_KIND}"
+            exit 1
+          fi
+
+          if [ "$WORKING_DIRECTORY" = "." ]; then
+            full_migration_dir="$MIGRATION_DIR"
+          else
+            full_migration_dir="${WORKING_DIRECTORY%/}/$MIGRATION_DIR"
+          fi
+
+          echo "FULL_MIGRATION_DIR=$full_migration_dir" >> "$GITHUB_ENV"
+          if [ "$DB_KIND" = "postgres" ]; then
+            echo "DATABASE_URL=postgres://postgres:postgres@localhost:5432/${DB_NAME}?sslmode=disable" >> "$GITHUB_ENV"
+            if [ -n "$APP_DB_NAME" ]; then
+              echo "MIGRATION_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/${APP_DB_NAME}?sslmode=disable" >> "$GITHUB_ENV"
+              echo "MIGRATION_TEST_GOFRAME_LINK=pgsql:postgres:postgres@tcp(localhost:5432)/${APP_DB_NAME}" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "DATABASE_URL=sqlserver://sa:DevPass123%21@localhost:1433?database=${DB_NAME}&encrypt=disable" >> "$GITHUB_ENV"
+            if [ -n "$APP_DB_NAME" ]; then
+              echo "MIGRATION_TEST_DATABASE_URL=sqlserver://sa:DevPass123%21@localhost:1433?database=${APP_DB_NAME}&encrypt=disable" >> "$GITHUB_ENV"
+              echo "MIGRATION_TEST_GOFRAME_LINK=mssql:sa:DevPass123!@tcp(localhost:1433)/${APP_DB_NAME}?encrypt=disable" >> "$GITHUB_ENV"
+            fi
+          fi
+
+      - name: 启动数据库
+        run: |
+          set -euo pipefail
+
+          if [ "$DB_KIND" = "postgres" ]; then
+            docker run -d --name migration-postgres \
+              -e POSTGRES_DB="$DB_NAME" \
+              -e POSTGRES_USER=postgres \
+              -e POSTGRES_PASSWORD=postgres \
+              -p 5432:5432 \
+              postgres:17
+
+            for i in {1..30}; do
+              if docker exec migration-postgres pg_isready -U postgres -d "$DB_NAME" >/dev/null 2>&1; then
+                echo "PostgreSQL 已就绪。"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "::error::PostgreSQL 未就绪"
+            exit 1
+          fi
+
+          docker run -d --name migration-sqlserver \
+            -e ACCEPT_EULA=Y \
+            -e 'MSSQL_SA_PASSWORD=DevPass123!' \
+            -p 1433:1433 \
+            mcr.microsoft.com/mssql/server:2022-latest
+
+          for i in {1..60}; do
+            if docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
+              echo "SQL Server 已就绪。"
+              docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P 'DevPass123!' -C \
+                -Q "CREATE DATABASE ${DB_NAME}"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::SQL Server 未就绪"
+          exit 1
+
+      - name: 判断是否需要执行迁移校验
+        id: detect
+        run: |
+          set -euo pipefail
+
+          immutable_migration_files=""
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "手动触发 workflow，执行完整迁移校验。"
+            echo "has_migration_changes=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "${GITHUB_BASE_REF:-}" ]; then
+            git fetch origin "${GITHUB_BASE_REF}" --depth=1
+            changed_files=$(git diff --name-only "origin/${GITHUB_BASE_REF}"...HEAD)
+            if [ "${{ inputs.immutable-migration-files }}" = "true" ]; then
+              immutable_migration_files=$(git diff --name-only --diff-filter=MRTD "origin/${GITHUB_BASE_REF}"...HEAD -- "${FULL_MIGRATION_DIR}"/*.sql || true)
+            fi
+          else
+            before="${{ github.event.before }}"
+            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+              echo "无法确定 push 前置提交，执行完整迁移校验。"
+              echo "has_migration_changes=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            changed_files=$(git diff --name-only "$before" HEAD)
+            if [ "${{ inputs.immutable-migration-files }}" = "true" ]; then
+              immutable_migration_files=$(git diff --name-only --diff-filter=MRTD "$before" HEAD -- "${FULL_MIGRATION_DIR}"/*.sql || true)
+            fi
+          fi
+
+          echo "$changed_files"
+          if [ -n "$immutable_migration_files" ]; then
+            echo "::error::迁移 SQL 文件不能删除或改写，请新增更高版本迁移替代。"
+            printf '%s\n' "$immutable_migration_files"
+            exit 1
+          fi
+
+          if printf '%s\n' "$changed_files" | grep -Eq "$MIGRATION_PATH_PATTERN"; then
+            echo "检测到迁移相关变更，执行完整迁移校验。"
+            echo "has_migration_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "没有迁移相关变更，迁移 required check 直接标记成功。"
+            echo "has_migration_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v6
+        if: steps.detect.outputs.has_migration_changes == 'true' && inputs.go-version-file == ''
+        with:
+          cache: true
+          cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
+          go-version: ${{ inputs.go-version }}
+
+      - uses: actions/setup-go@v6
+        if: steps.detect.outputs.has_migration_changes == 'true' && inputs.go-version-file != ''
+        with:
+          cache: true
+          cache-dependency-path: ${{ inputs.go-cache-dependency-path }}
+          go-version-file: ${{ inputs.go-version-file }}
+
+      - name: 检查迁移文件命名和编号
+        if: steps.detect.outputs.has_migration_changes == 'true'
+        run: ${{ inputs.check-migrations-command }}
+
+      - name: 检查迁移 SQL Git 属性
+        if: steps.detect.outputs.has_migration_changes == 'true' && inputs.check-git-attrs
+        run: |
+          set -euo pipefail
+
+          paths=("${FULL_MIGRATION_DIR}"/*.sql)
+          if [ -n "$MIGRATION_EMBED_FILE" ]; then
+            paths+=("$MIGRATION_EMBED_FILE")
+          fi
+
+          attrs=$(git check-attr filter diff -- "${paths[@]}")
+          echo "$attrs"
+          invalid_attrs=$(printf '%s\n' "$attrs" | grep -Ev ': (filter: unset|diff: set)$' || true)
+          if [ -n "$invalid_attrs" ]; then
+            echo "::error::迁移文件必须 filter unset 且 diff set，避免被 git-crypt 或 binary diff 影响审阅。"
+            printf '%s\n' "$invalid_attrs"
+            exit 1
+          fi
+
+      - name: 计算最新迁移版本
+        if: steps.detect.outputs.has_migration_changes == 'true'
+        id: migration-version
+        run: |
+          set -euo pipefail
+
+          max_version=$(find "$FULL_MIGRATION_DIR" -maxdepth 1 -type f -name '*.up.sql' -print |
+            sed 's#.*/##' |
+            LC_ALL=C sort |
+            tail -n 1 |
+            cut -d_ -f1 |
+            sed 's/^0*//')
+          echo "max_version=$max_version" >> "$GITHUB_OUTPUT"
+
+      - name: 执行空库迁移
+        if: steps.detect.outputs.has_migration_changes == 'true'
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          ${MIGRATE_CMD} \
+            -path "$MIGRATION_DIR" \
+            -database "$DATABASE_URL" up
+
+      - name: 检查迁移版本状态
+        if: steps.detect.outputs.has_migration_changes == 'true'
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+
+          max_version="${{ steps.migration-version.outputs.max_version }}"
+          expected="${max_version}:false"
+          if [ "$DB_KIND" = "postgres" ]; then
+            result=$(psql -h localhost -p 5432 -U postgres -d "$DB_NAME" -Atc "select version || ':' || dirty from schema_migrations")
+          else
+            result=$(docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -d "$DB_NAME" \
+              -h -1 -W -Q "SET NOCOUNT ON; SELECT CONCAT(version, ':', CASE WHEN dirty = 1 THEN 'true' ELSE 'false' END) FROM schema_migrations")
+          fi
+
+          if [ "$result" != "$expected" ]; then
+            echo "::error::schema_migrations 状态不正确，期望 $expected，实际 $result"
+            exit 1
+          fi
+          echo "schema_migrations 状态正确: $result"
+
+      - name: 重复执行迁移应无新增版本
+        if: steps.detect.outputs.has_migration_changes == 'true'
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          output=$(${MIGRATE_CMD} \
+            -path "$MIGRATION_DIR" \
+            -database "$DATABASE_URL" up 2>&1)
+          echo "$output"
+          if ! grep -q "no change" <<< "$output"; then
+            echo "::error::重复执行迁移应返回 no change"
+            exit 1
+          fi
+
+      - name: 校验最终 schema contract
+        if: steps.detect.outputs.has_migration_changes == 'true' && inputs.schema-contract != ''
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+
+          if [ "$DB_KIND" = "postgres" ]; then
+            psql -h localhost -p 5432 -U postgres -d "$DB_NAME" \
+              -v ON_ERROR_STOP=1 \
+              -f "$SCHEMA_CONTRACT"
+          else
+            docker exec -i migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -d "$DB_NAME" \
+              -b < "$SCHEMA_CONTRACT"
+          fi
+
+      - name: 验证完整回滚再重放
+        if: steps.detect.outputs.has_migration_changes == 'true' && inputs.full-rollback
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+
+          max_version="${{ steps.migration-version.outputs.max_version }}"
+          ${MIGRATE_CMD} \
+            -path "$MIGRATION_DIR" \
+            -database "$DATABASE_URL" down "$max_version"
+
+          if [ -n "$BUSINESS_TABLE_QUERY" ]; then
+            if [ "$DB_KIND" = "postgres" ]; then
+              remaining_tables=$(psql -h localhost -p 5432 -U postgres -d "$DB_NAME" -Atc "$BUSINESS_TABLE_QUERY")
+            else
+              remaining_tables=$(docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P 'DevPass123!' -C -d "$DB_NAME" \
+                -h -1 -W -Q "$BUSINESS_TABLE_QUERY")
+            fi
+            if [ -n "$remaining_tables" ]; then
+              echo "::error::完整 down $max_version 后业务表仍存在: $remaining_tables"
+              exit 1
+            fi
+          fi
+
+          if [ "$DB_KIND" = "postgres" ]; then
+            result=$(psql -h localhost -p 5432 -U postgres -d "$DB_NAME" -Atc "select case when to_regclass('public.schema_migrations') is null then '0:false' when exists (select 1 from schema_migrations where version = -1 and dirty = false) then '0:false' else coalesce((select version || ':' || dirty from schema_migrations), '0:false') end")
+          else
+            result=$(docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -d "$DB_NAME" \
+              -h -1 -W -Q "SET NOCOUNT ON; IF OBJECT_ID('schema_migrations') IS NULL SELECT '0:false' ELSE SELECT COALESCE((SELECT CONCAT(version, ':', CASE WHEN dirty = 1 THEN 'true' ELSE 'false' END) FROM schema_migrations), '0:false')")
+          fi
+          if [ "$result" != "0:false" ]; then
+            echo "::error::完整 down $max_version 后 schema_migrations 状态不正确，期望 0:false，实际 $result"
+            exit 1
+          fi
+
+          ${MIGRATE_CMD} \
+            -path "$MIGRATION_DIR" \
+            -database "$DATABASE_URL" up "$max_version"
+
+          if [ "$DB_KIND" = "postgres" ]; then
+            result=$(psql -h localhost -p 5432 -U postgres -d "$DB_NAME" -Atc "select version || ':' || dirty from schema_migrations")
+          else
+            result=$(docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -d "$DB_NAME" \
+              -h -1 -W -Q "SET NOCOUNT ON; SELECT CONCAT(version, ':', CASE WHEN dirty = 1 THEN 'true' ELSE 'false' END) FROM schema_migrations")
+          fi
+          expected="${max_version}:false"
+          if [ "$result" != "$expected" ]; then
+            echo "::error::完整重放 up $max_version 后 schema_migrations 状态不正确，期望 $expected，实际 $result"
+            exit 1
+          fi
+
+          if [ -n "$SCHEMA_CONTRACT" ]; then
+            if [ "$DB_KIND" = "postgres" ]; then
+              psql -h localhost -p 5432 -U postgres -d "$DB_NAME" \
+                -v ON_ERROR_STOP=1 \
+                -f "$GITHUB_WORKSPACE/$SCHEMA_CONTRACT"
+            else
+              docker exec -i migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P 'DevPass123!' -C -d "$DB_NAME" \
+                -b < "$GITHUB_WORKSPACE/$SCHEMA_CONTRACT"
+            fi
+          fi
+
+      - name: 验证新增迁移可全部回滚再重放
+        if: steps.detect.outputs.has_migration_changes == 'true'
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+
+          if [ -n "${GITHUB_BASE_REF:-}" ]; then
+            if [ "${{ inputs.immutable-migration-files }}" = "true" ]; then
+              version_diff_filter="A"
+            else
+              version_diff_filter="AMR"
+            fi
+            changed_versions=$(git diff --name-only --diff-filter="$version_diff_filter" "origin/${GITHUB_BASE_REF}"...HEAD -- "${FULL_MIGRATION_DIR}"/*.up.sql |
+              sed -nE "s#^${FULL_MIGRATION_DIR}/([0-9]{6})_.*\\.up\\.sql\$#\\1#p" |
+              LC_ALL=C sort -u)
+          else
+            changed_versions=$(find "$FULL_MIGRATION_DIR" -maxdepth 1 -type f -name '*.up.sql' -print |
+              sed -nE 's#.*/([0-9]{6})_.*\.up\.sql$#\1#p' |
+              LC_ALL=C sort -u)
+          fi
+
+          if [ -z "$changed_versions" ]; then
+            echo "没有新增或修改 up 迁移文件，跳过 down/up 回归验证。"
+            exit 0
+          fi
+
+          max_version="${{ steps.migration-version.outputs.max_version }}"
+          first_changed=$((10#$(printf '%s\n' "$changed_versions" | head -n 1)))
+          base_version=$((first_changed - 1))
+          if [ "$base_version" -lt 1 ]; then
+            echo "首个迁移即新增，跳过 down/up 回归验证。"
+            exit 0
+          fi
+          rollback_steps=$((max_version - base_version))
+
+          pushd "$GITHUB_WORKSPACE/$WORKING_DIRECTORY" >/dev/null
+          ${MIGRATE_CMD} \
+            -path "$MIGRATION_DIR" \
+            -database "$DATABASE_URL" down "$rollback_steps"
+          popd >/dev/null
+
+          expected="${base_version}:false"
+          if [ "$DB_KIND" = "postgres" ]; then
+            result=$(psql -h localhost -p 5432 -U postgres -d "$DB_NAME" -Atc "select case when to_regclass('public.schema_migrations') is null then '0:false' else coalesce((select version || ':' || dirty from schema_migrations), '0:false') end")
+          else
+            result=$(docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -d "$DB_NAME" \
+              -h -1 -W -Q "SET NOCOUNT ON; SELECT CONCAT(version, ':', CASE WHEN dirty = 1 THEN 'true' ELSE 'false' END) FROM schema_migrations")
+          fi
+          if [ "$result" != "$expected" ]; then
+            echo "::error::down $rollback_steps 后 schema_migrations 状态不正确，期望 $expected，实际 $result"
+            exit 1
+          fi
+
+          pushd "$GITHUB_WORKSPACE/$WORKING_DIRECTORY" >/dev/null
+          ${MIGRATE_CMD} \
+            -path "$MIGRATION_DIR" \
+            -database "$DATABASE_URL" up "$rollback_steps"
+          popd >/dev/null
+
+          expected="${max_version}:false"
+          if [ "$DB_KIND" = "postgres" ]; then
+            result=$(psql -h localhost -p 5432 -U postgres -d "$DB_NAME" -Atc "select version || ':' || dirty from schema_migrations")
+          else
+            result=$(docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'DevPass123!' -C -d "$DB_NAME" \
+              -h -1 -W -Q "SET NOCOUNT ON; SELECT CONCAT(version, ':', CASE WHEN dirty = 1 THEN 'true' ELSE 'false' END) FROM schema_migrations")
+          fi
+          if [ "$result" != "$expected" ]; then
+            echo "::error::up $rollback_steps 后 schema_migrations 状态不正确，期望 $expected，实际 $result"
+            exit 1
+          fi
+
+      - name: 验证二进制手动迁移命令
+        if: steps.detect.outputs.has_migration_changes == 'true' && inputs.binary-check-command != ''
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          PGPASSWORD: postgres
+          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$APP_DB_NAME" ]; then
+            if [ "$DB_KIND" = "postgres" ]; then
+              createdb -h localhost -p 5432 -U postgres "$APP_DB_NAME"
+            else
+              docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P 'DevPass123!' -C \
+                -Q "CREATE DATABASE ${APP_DB_NAME}"
+            fi
+          fi
+
+          ${{ inputs.binary-check-command }}
