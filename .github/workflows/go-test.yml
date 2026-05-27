@@ -22,7 +22,7 @@ on:
       changed-file-pattern:
         required: false
         type: string
-        default: '^.*\.go$|^go\.(mod|sum)$|^\.golangci\.ya?ml$'
+        default: '^.*\.go$|(^|.*/)(go\.(mod|sum)|\.golangci\.ya?ml)$'
       max-shards:
         required: false
         type: number
