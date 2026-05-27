@@ -19,18 +19,23 @@ on:
         required: false
         type: string
         default: "**/pnpm-lock.yaml"
-      changed-file-pattern:
+      changed-paths:
         required: false
         type: string
-        default: "^.*$"
-      ignored-file-pattern:
+        default: |
+          **/*
+      ignored-paths:
         required: false
         type: string
         default: ""
-      always-run-file-pattern:
+      always-run-paths:
         required: false
         type: string
-        default: "^$"
+        default: ""
+      predicate-quantifier:
+        required: false
+        type: string
+        default: some
       install-command:
         required: false
         type: string
@@ -57,13 +62,56 @@ jobs:
     name: 前端检查
     runs-on: ubuntu-latest
     steps:
-      - name: 判断是否需要前端检查
-        id: check
+      - name: 准备路径过滤配置
+        id: filter-config
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
         env:
-          GH_TOKEN: ${{ github.token }}
-          CHANGED_FILE_PATTERN: ${{ inputs.changed-file-pattern }}
-          IGNORED_FILE_PATTERN: ${{ inputs.ignored-file-pattern }}
-          ALWAYS_RUN_FILE_PATTERN: ${{ inputs.always-run-file-pattern }}
+          CHANGED_PATHS: ${{ inputs.changed-paths }}
+          IGNORED_PATHS: ${{ inputs.ignored-paths }}
+          ALWAYS_RUN_PATHS: ${{ inputs.always-run-paths }}
+        run: |
+          python3 <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+
+          def patterns(name):
+              for pattern in os.environ[name].splitlines():
+                  pattern = pattern.strip()
+                  if pattern:
+                      yield pattern
+
+          print("filters<<EOF")
+          print("changed:")
+          for pattern in patterns("CHANGED_PATHS"):
+              print(f"  - {pattern!r}")
+          for pattern in patterns("IGNORED_PATHS"):
+              print(f"  - '!{pattern}'")
+          always_patterns = list(patterns("ALWAYS_RUN_PATHS"))
+          if always_patterns:
+              print("always:")
+          for pattern in always_patterns:
+              print(f"  - {pattern!r}")
+          print("EOF")
+          PY
+
+      - uses: actions/checkout@v6
+        if: github.event_name == 'push'
+        with:
+          fetch-depth: 0
+
+      - name: 检查是否有前端相关改动
+        id: check
+        uses: dorny/paths-filter@v4
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+        with:
+          filters: ${{ steps.filter-config.outputs.filters }}
+          predicate-quantifier: ${{ inputs.predicate-quantifier }}
+          token: ${{ github.token }}
+
+      - name: 判断是否执行前端检查
+        id: plan
+        env:
+          CHANGED_OUTPUT: ${{ steps.check.outputs.changed }}
+          ALWAYS_OUTPUT: ${{ steps.check.outputs.always }}
         run: |
           set -euo pipefail
 
@@ -75,52 +123,9 @@ jobs:
             exit 0
           fi
 
-          case "${{ github.event_name }}" in
-            pull_request)
-              changed_files=$(gh api --paginate \
-                "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
-                --jq '.[].filename')
-              ;;
-            push)
-              before="${{ github.event.before }}"
-              if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
-                echo "无法确定 push 前置提交，执行前端检查。"
-                echo "run=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-
-              changed_files=$(gh api \
-                "repos/${{ github.repository }}/compare/${before}...${{ github.sha }}" \
-                --jq '.files[].filename')
-              ;;
-            *)
-              echo "run=true" >> "$GITHUB_OUTPUT"
-              exit 0
-              ;;
-          esac
-
-          echo "$changed_files"
-          should_run=false
-          while IFS= read -r file; do
-            if printf '%s\n' "$file" | grep -Eq "$ALWAYS_RUN_FILE_PATTERN"; then
-              should_run=true
-              break
-            fi
-
-            if ! printf '%s\n' "$file" | grep -Eq "$CHANGED_FILE_PATTERN"; then
-              continue
-            fi
-
-            if [ -n "$IGNORED_FILE_PATTERN" ] &&
-              printf '%s\n' "$file" | grep -Eq "$IGNORED_FILE_PATTERN"; then
-              continue
-            fi
-
-            should_run=true
-            break
-          done <<< "$changed_files"
-
-          if [ "$should_run" = "true" ]; then
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.event_name }}" != "push" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$ALWAYS_OUTPUT" = "true" ] || [ "$CHANGED_OUTPUT" = "true" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -128,16 +133,16 @@ jobs:
           fi
 
       - uses: actions/checkout@v6
-        if: steps.check.outputs.run == 'true'
+        if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
 
       - name: 安装 pnpm
-        if: steps.check.outputs.run == 'true'
+        if: steps.plan.outputs.run == 'true'
         uses: pnpm/action-setup@v6
         with:
           version: ${{ inputs.pnpm-version }}
 
       - name: 安装 Node.js
-        if: steps.check.outputs.run == 'true'
+        if: steps.plan.outputs.run == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
@@ -145,20 +150,20 @@ jobs:
           cache-dependency-path: ${{ inputs.cache-dependency-path }}
 
       - name: 安装依赖
-        if: steps.check.outputs.run == 'true'
+        if: steps.plan.outputs.run == 'true'
         working-directory: ${{ inputs.working-directory }}
         run: ${{ inputs.install-command }}
 
       - name: 安装 Playwright 浏览器
-        if: steps.check.outputs.run == 'true' && inputs.playwright-browsers != ''
+        if: steps.plan.outputs.run == 'true' && inputs.playwright-browsers != ''
         working-directory: ${{ inputs.working-directory }}
         run: pnpm exec playwright install --with-deps ${{ inputs.playwright-browsers }}
 
       - name: 执行前端检查
-        if: steps.check.outputs.run == 'true'
+        if: steps.plan.outputs.run == 'true'
         working-directory: ${{ inputs.working-directory }}
         run: ${{ inputs.check-command }}
 
       - name: 跳过前端检查
-        if: steps.check.outputs.run != 'true'
+        if: steps.plan.outputs.run != 'true'
         run: echo "无需执行前端检查。"
