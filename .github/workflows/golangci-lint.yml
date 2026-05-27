@@ -52,7 +52,6 @@ jobs:
   golangci:
     name: Go 代码检查
     runs-on: ubuntu-latest
-    if: inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - name: 检查是否有 Go 相关改动
         id: check
@@ -61,6 +60,14 @@ jobs:
           CHANGED_FILE_PATTERN: ${{ inputs.changed-file-pattern }}
         run: |
           set -euo pipefail
+
+          if [ "${{ inputs.skip-draft-pr }}" = "true" ] &&
+            [ "${{ github.event_name }}" = "pull_request" ] &&
+            [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "草稿 PR 跳过 Go 代码检查，门禁返回成功。"
+            exit 0
+          fi
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             changed_files=$(gh api --paginate \

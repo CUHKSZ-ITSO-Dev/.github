@@ -72,7 +72,6 @@ jobs:
   filter:
     name: 分配测试
     runs-on: ubuntu-latest
-    if: inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false
     outputs:
       run: ${{ steps.plan.outputs.run }}
       shard_count: ${{ steps.shards.outputs.shard_count || steps.plan.outputs.shard_count }}
@@ -85,6 +84,16 @@ jobs:
           CHANGED_FILE_PATTERN: ${{ inputs.changed-file-pattern }}
         run: |
           set -euo pipefail
+
+          if [ "${{ inputs.skip-draft-pr }}" = "true" ] &&
+            [ "${{ github.event_name }}" = "pull_request" ] &&
+            [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "shard_count=1" >> "$GITHUB_OUTPUT"
+            echo "shard_list=[1]" >> "$GITHUB_OUTPUT"
+            echo "草稿 PR 跳过 Go 测试，门禁返回成功。"
+            exit 0
+          fi
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             changed_files=$(gh api --paginate \
