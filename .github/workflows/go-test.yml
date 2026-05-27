@@ -113,7 +113,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         if: steps.plan.outputs.run == 'true'
 
       - name: 自动计算测试分片
@@ -169,7 +169,7 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.filter.outputs.shard_list) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: 恢复 Git LFS 缓存
         id: lfs

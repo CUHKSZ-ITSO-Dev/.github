@@ -85,7 +85,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         if: steps.check.outputs.run == 'true'
 
       - name: 恢复 Git LFS 缓存

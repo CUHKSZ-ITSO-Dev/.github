@@ -107,7 +107,7 @@ jobs:
       APP_DB_NAME: ${{ inputs.app-database-name }}
       MIGRATE_CMD: go run -tags ${{ inputs.migration-tags }} github.com/golang-migrate/migrate/v4/cmd/migrate@${{ inputs.migrate-version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

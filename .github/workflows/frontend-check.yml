@@ -127,12 +127,12 @@ jobs:
             echo "PR 无前端相关改动，跳过前端检查，门禁返回成功。"
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         if: steps.check.outputs.run == 'true'
 
       - name: 安装 pnpm
         if: steps.check.outputs.run == 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: ${{ inputs.pnpm-version }}
 
