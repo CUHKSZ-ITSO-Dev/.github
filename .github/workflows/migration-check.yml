@@ -1,4 +1,4 @@
-name: 数据库迁移检查
+name: 迁移检查
 
 on:
   workflow_call:
@@ -93,7 +93,7 @@ permissions:
 
 jobs:
   migration:
-    name: migration
+    name: 执行
     runs-on: ubuntu-latest
     env:
       DB_KIND: ${{ inputs.database-kind }}
