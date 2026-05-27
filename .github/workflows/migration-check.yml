@@ -50,7 +50,7 @@ on:
       immutable-migration-files:
         required: false
         type: boolean
-        default: false
+        default: true
       check-git-attrs:
         required: false
         type: boolean
