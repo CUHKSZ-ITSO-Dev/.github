@@ -6,8 +6,8 @@
 
 | 路径 | 用途 | 使用仓库 |
 | --- | --- | --- |
-| `.github/pull_request_template.md` | 组织统一 PR 模板，要求填写背景、改动、影响、截图 / 验证材料。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
-| `actions/check-pr-body/action.yml` | 检查 PR 描述是否满足组织模板必要小节。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
+| `.github/pull_request_template.md` | 组织统一 PR 模板，要求填写背景、改动、影响、验证、材料。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
+| `actions/check-pr-body/action.yml` | 读取公共 PR 模板中的二级标题，动态检查 PR 描述是否填写对应小节。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/pr-check.yml` | 统一检查 PR 描述、commit 数量和 Commit Message。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/auto-assign-pr-author.yml` | PR 无负责人时自动把 PR 作者设为 assignee。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/stale-pr.yml` | 统一标记和关闭不活跃 PR，并维护 `stale` / `no-stale` 标签说明。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
