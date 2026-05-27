@@ -1,0 +1,164 @@
+name: 前端检查
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: false
+        type: string
+        default: "."
+      node-version:
+        required: false
+        type: string
+        default: "22"
+      pnpm-version:
+        required: false
+        type: string
+        default: "10.15.1"
+      cache-dependency-path:
+        required: false
+        type: string
+        default: "**/pnpm-lock.yaml"
+      changed-file-pattern:
+        required: false
+        type: string
+        default: "^.*$"
+      ignored-file-pattern:
+        required: false
+        type: string
+        default: ""
+      always-run-file-pattern:
+        required: false
+        type: string
+        default: "^$"
+      install-command:
+        required: false
+        type: string
+        default: "pnpm install --frozen-lockfile"
+      playwright-browsers:
+        required: false
+        type: string
+        default: ""
+      check-command:
+        required: false
+        type: string
+        default: "pnpm run lint"
+      skip-draft-pr:
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  frontend:
+    name: 前端检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: 判断是否需要前端检查
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED_FILE_PATTERN: ${{ inputs.changed-file-pattern }}
+          IGNORED_FILE_PATTERN: ${{ inputs.ignored-file-pattern }}
+          ALWAYS_RUN_FILE_PATTERN: ${{ inputs.always-run-file-pattern }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs.skip-draft-pr }}" = "true" ] &&
+            [ "${{ github.event_name }}" = "pull_request" ] &&
+            [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "草稿 PR 跳过前端检查，门禁返回成功。"
+            exit 0
+          fi
+
+          case "${{ github.event_name }}" in
+            pull_request)
+              changed_files=$(gh api --paginate \
+                "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
+                --jq '.[].filename')
+              ;;
+            push)
+              before="${{ github.event.before }}"
+              if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+                echo "无法确定 push 前置提交，执行前端检查。"
+                echo "run=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              changed_files=$(gh api \
+                "repos/${{ github.repository }}/compare/${before}...${{ github.sha }}" \
+                --jq '.files[].filename')
+              ;;
+            *)
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          echo "$changed_files"
+          should_run=false
+          while IFS= read -r file; do
+            if printf '%s\n' "$file" | grep -Eq "$ALWAYS_RUN_FILE_PATTERN"; then
+              should_run=true
+              break
+            fi
+
+            if ! printf '%s\n' "$file" | grep -Eq "$CHANGED_FILE_PATTERN"; then
+              continue
+            fi
+
+            if [ -n "$IGNORED_FILE_PATTERN" ] &&
+              printf '%s\n' "$file" | grep -Eq "$IGNORED_FILE_PATTERN"; then
+              continue
+            fi
+
+            should_run=true
+            break
+          done <<< "$changed_files"
+
+          if [ "$should_run" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "PR 无前端相关改动，跳过前端检查，门禁返回成功。"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.check.outputs.run == 'true'
+
+      - name: 安装 pnpm
+        if: steps.check.outputs.run == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ inputs.pnpm-version }}
+
+      - name: 安装 Node.js
+        if: steps.check.outputs.run == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: 安装依赖
+        if: steps.check.outputs.run == 'true'
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.install-command }}
+
+      - name: 安装 Playwright 浏览器
+        if: steps.check.outputs.run == 'true' && inputs.playwright-browsers != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: pnpm exec playwright install --with-deps ${{ inputs.playwright-browsers }}
+
+      - name: 执行前端检查
+        if: steps.check.outputs.run == 'true'
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.check-command }}
+
+      - name: 跳过前端检查
+        if: steps.check.outputs.run != 'true'
+        run: echo "无需执行前端检查。"
