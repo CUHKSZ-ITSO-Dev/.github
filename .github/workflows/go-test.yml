@@ -352,6 +352,22 @@ jobs:
         run: |
           set -euo pipefail
 
+          wait_database() {
+            local database_name="$1"
+            for i in {1..30}; do
+              if docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P 'DevPass123!' -C -d "$database_name" \
+                -Q 'SELECT 1' >/dev/null 2>&1; then
+                echo "SQL Server 数据库 ${database_name} 已就绪。"
+                return 0
+              fi
+              sleep 2
+            done
+
+            echo "::error::SQL Server 数据库 ${database_name} 未就绪"
+            return 1
+          }
+
           docker run -d --name go-test-sqlserver \
             -e ACCEPT_EULA=Y \
             -e 'MSSQL_SA_PASSWORD=DevPass123!' \
@@ -365,10 +381,12 @@ jobs:
               docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd \
                 -S localhost -U sa -P 'DevPass123!' -C \
                 -Q "CREATE DATABASE [${{ inputs.database-name }}]"
+              wait_database "${{ inputs.database-name }}"
               if [ -n "${{ inputs.app-database-name }}" ]; then
                 docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd \
                   -S localhost -U sa -P 'DevPass123!' -C \
                   -Q "CREATE DATABASE [${{ inputs.app-database-name }}]"
+                wait_database "${{ inputs.app-database-name }}"
               fi
               exit 0
             fi
