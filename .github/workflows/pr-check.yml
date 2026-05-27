@@ -1,0 +1,43 @@
+name: PR 检查
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr-check:
+    name: PR 检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查 PR 描述
+        uses: CUHKSZ-ITSO-Dev/.github/actions/check-pr-body@main
+        with:
+          body: ${{ github.event.pull_request.body }}
+
+      - name: 检查 commit 数量
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          export LC_ALL=C.UTF-8
+          export LANG=C.UTF-8
+
+          count=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits?per_page=100" --jq 'length')
+          echo "PR 包含 ${count} 个 commit。"
+
+          if [ "${count}" -gt 20 ]; then
+            echo "::error::PR 包含 ${count} 个 commit，超过上限 20 个。请拆分 PR 或整理提交历史。"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 检查 Commit Message
+        uses: wagoid/commitlint-github-action@v6
+        with:
+          github-token: ${{ github.token }}
