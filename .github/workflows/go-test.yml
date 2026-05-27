@@ -68,6 +68,14 @@ on:
         required: false
         type: string
         default: ""
+      cgo-library-dir:
+        required: false
+        type: string
+        default: ""
+      prepare-command:
+        required: false
+        type: string
+        default: ""
       skip-draft-pr:
         required: false
         type: boolean
@@ -148,6 +156,24 @@ jobs:
       - uses: actions/checkout@v6
         if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
 
+      - uses: actions/setup-go@v6
+        if: steps.plan.outputs.run == 'true' && inputs.go-version-file != ''
+        with:
+          cache: false
+          go-version-file: ${{ inputs.go-version-file }}
+
+      - uses: actions/setup-go@v6
+        if: steps.plan.outputs.run == 'true' && inputs.go-version-file == '' && inputs.go-version != ''
+        with:
+          cache: false
+          go-version: ${{ inputs.go-version }}
+
+      - uses: actions/setup-go@v6
+        if: steps.plan.outputs.run == 'true' && inputs.go-version-file == '' && inputs.go-version == ''
+        with:
+          cache: false
+          go-version-file: ${{ inputs.working-directory }}/go.mod
+
       - name: 自动计算测试分片
         id: shards
         if: steps.plan.outputs.run == 'true'
@@ -159,9 +185,7 @@ jobs:
           set -euo pipefail
 
           cd "$WORKING_DIRECTORY"
-          package_count=$(git ls-files '*.go' |
-            xargs -r -n1 dirname |
-            sort -u |
+          package_count=$(go list ./... |
             wc -l |
             tr -d ' ')
 
@@ -277,6 +301,26 @@ jobs:
             echo "MIGRATION_TEST_GOFRAME_LINK=mssql:sa:DevPass123!@tcp(localhost:1433)/${{ inputs.app-database-name }}?encrypt=disable" >> "$GITHUB_ENV"
           fi
 
+      - name: 准备 CGO 参数
+        if: inputs.cgo-enabled != '' || inputs.cgo-ldflags != '' || inputs.cgo-library-dir != ''
+        env:
+          INPUT_CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          INPUT_CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
+          INPUT_CGO_LIBRARY_DIR: ${{ inputs.cgo-library-dir }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$INPUT_CGO_ENABLED" ]; then
+            echo "CGO_ENABLED=$INPUT_CGO_ENABLED" >> "$GITHUB_ENV"
+          fi
+
+          if [ -n "$INPUT_CGO_LDFLAGS" ]; then
+            echo "CGO_LDFLAGS=$INPUT_CGO_LDFLAGS" >> "$GITHUB_ENV"
+          elif [ -n "$INPUT_CGO_LIBRARY_DIR" ]; then
+            library_dir="${INPUT_CGO_LIBRARY_DIR#/}"
+            echo "CGO_LDFLAGS=-L${GITHUB_WORKSPACE}/${library_dir}" >> "$GITHUB_ENV"
+          fi
+
       - name: 启动 PostgreSQL
         if: inputs.database-kind == 'postgres'
         run: |
@@ -334,11 +378,14 @@ jobs:
           echo "::error::SQL Server 未就绪"
           exit 1
 
+      - name: 准备测试配置
+        if: inputs.prepare-command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.prepare-command }}
+
       - name: 运行 Go 测试
         working-directory: ${{ inputs.working-directory }}
         env:
-          CGO_ENABLED: ${{ inputs.cgo-enabled }}
-          CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
           PGPASSWORD: postgres
           SHARD: ${{ matrix.shard }}
           SHARD_TOTAL: ${{ needs.filter.outputs.shard_count }}
@@ -346,16 +393,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          all_packages=$(git ls-files '*.go' |
-            xargs -r -n1 dirname |
-            sort -u |
-            while read -r dir; do
-              if [ "$dir" = "." ]; then
-                echo "."
-              else
-                echo "./$dir"
-              fi
-            done)
+          all_packages=$(go list ./... | sort)
           packages=$(printf '%s\n' "$all_packages" | awk -v s="$SHARD" -v t="$SHARD_TOTAL" '(NR-1)%t == s-1')
 
           if [ -z "$packages" ]; then

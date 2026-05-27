@@ -48,6 +48,10 @@ on:
         required: false
         type: string
         default: ""
+      cgo-library-dir:
+        required: false
+        type: string
+        default: ""
       skip-draft-pr:
         required: false
         type: boolean
@@ -156,6 +160,26 @@ jobs:
           cache-dependency-path: ${{ inputs.cache-dependency-path }}
           go-version-file: ${{ inputs.go-version-file }}
 
+      - name: 准备 CGO 参数
+        if: steps.plan.outputs.run == 'true' && (inputs.cgo-enabled != '' || inputs.cgo-ldflags != '' || inputs.cgo-library-dir != '')
+        env:
+          INPUT_CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          INPUT_CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
+          INPUT_CGO_LIBRARY_DIR: ${{ inputs.cgo-library-dir }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$INPUT_CGO_ENABLED" ]; then
+            echo "CGO_ENABLED=$INPUT_CGO_ENABLED" >> "$GITHUB_ENV"
+          fi
+
+          if [ -n "$INPUT_CGO_LDFLAGS" ]; then
+            echo "CGO_LDFLAGS=$INPUT_CGO_LDFLAGS" >> "$GITHUB_ENV"
+          elif [ -n "$INPUT_CGO_LIBRARY_DIR" ]; then
+            library_dir="${INPUT_CGO_LIBRARY_DIR#/}"
+            echo "CGO_LDFLAGS=-L${GITHUB_WORKSPACE}/${library_dir}" >> "$GITHUB_ENV"
+          fi
+
       - name: 运行 golangci-lint
         if: steps.plan.outputs.run == 'true'
         uses: golangci/golangci-lint-action@v8
@@ -163,9 +187,6 @@ jobs:
           version: ${{ inputs.golangci-version }}
           working-directory: ${{ inputs.working-directory }}
           github-token: ${{ github.token }}
-        env:
-          CGO_ENABLED: ${{ inputs.cgo-enabled }}
-          CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
 
       - name: 跳过 Go 代码检查
         if: steps.plan.outputs.run != 'true'

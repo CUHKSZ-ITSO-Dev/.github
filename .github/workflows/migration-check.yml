@@ -87,6 +87,10 @@ on:
         required: false
         type: string
         default: ""
+      cgo-library-dir:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -495,10 +499,22 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
         env:
           PGPASSWORD: postgres
-          CGO_ENABLED: ${{ inputs.cgo-enabled }}
-          CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
+          INPUT_CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          INPUT_CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
+          INPUT_CGO_LIBRARY_DIR: ${{ inputs.cgo-library-dir }}
         run: |
           set -euo pipefail
+
+          if [ -n "$INPUT_CGO_ENABLED" ]; then
+            export CGO_ENABLED="$INPUT_CGO_ENABLED"
+          fi
+
+          if [ -n "$INPUT_CGO_LDFLAGS" ]; then
+            export CGO_LDFLAGS="$INPUT_CGO_LDFLAGS"
+          elif [ -n "$INPUT_CGO_LIBRARY_DIR" ]; then
+            library_dir="${INPUT_CGO_LIBRARY_DIR#/}"
+            export CGO_LDFLAGS="-L${GITHUB_WORKSPACE}/${library_dir}"
+          fi
 
           if [ -n "$APP_DB_NAME" ]; then
             if [ "$DB_KIND" = "postgres" ]; then
