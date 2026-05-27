@@ -10,7 +10,7 @@ on:
       go-version:
         required: false
         type: string
-        default: "1.26"
+        default: ""
       go-version-file:
         required: false
         type: string
@@ -18,19 +18,19 @@ on:
       cache-dependency-path:
         required: false
         type: string
-        default: ""
+        default: "**/go.sum"
       changed-file-pattern:
         required: false
         type: string
         default: '^.*\.go$|^go\.(mod|sum)$|^\.golangci\.ya?ml$'
-      shard-count:
+      max-shards:
         required: false
         type: number
-        default: 1
-      shard-list:
+        default: 4
+      packages-per-shard:
         required: false
-        type: string
-        default: "[1]"
+        type: number
+        default: 20
       test-flags:
         required: false
         type: string
@@ -74,10 +74,12 @@ jobs:
     runs-on: ubuntu-latest
     if: inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false
     outputs:
-      run: ${{ steps.check.outputs.run }}
+      run: ${{ steps.plan.outputs.run }}
+      shard_count: ${{ steps.shards.outputs.shard_count || steps.plan.outputs.shard_count }}
+      shard_list: ${{ steps.shards.outputs.shard_list || steps.plan.outputs.shard_list }}
     steps:
       - name: 检查是否有 Go 相关改动
-        id: check
+        id: plan
         env:
           GH_TOKEN: ${{ github.token }}
           CHANGED_FILE_PATTERN: ${{ inputs.changed-file-pattern }}
@@ -94,21 +96,69 @@ jobs:
               echo "run=true" >> "$GITHUB_OUTPUT"
             else
               echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "shard_count=1" >> "$GITHUB_OUTPUT"
+              echo "shard_list=[1]" >> "$GITHUB_OUTPUT"
               echo "PR 无 Go 相关改动，跳过。"
             fi
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: actions/checkout@v5
+        if: steps.plan.outputs.run == 'true'
+
+      - name: 自动计算测试分片
+        id: shards
+        if: steps.plan.outputs.run == 'true'
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          MAX_SHARDS: ${{ inputs.max-shards }}
+          PACKAGES_PER_SHARD: ${{ inputs.packages-per-shard }}
+        run: |
+          set -euo pipefail
+
+          cd "$WORKING_DIRECTORY"
+          package_count=$(git ls-files '*_test.go' |
+            xargs -r -n1 dirname |
+            sort -u |
+            wc -l |
+            tr -d ' ')
+
+          if [ "$package_count" -lt 1 ]; then
+            shard_count=1
+          else
+            shard_count=$(((package_count + PACKAGES_PER_SHARD - 1) / PACKAGES_PER_SHARD))
+          fi
+
+          if [ "$shard_count" -lt 1 ]; then
+            shard_count=1
+          fi
+          if [ "$shard_count" -gt "$MAX_SHARDS" ]; then
+            shard_count="$MAX_SHARDS"
+          fi
+
+          shard_list="["
+          for shard in $(seq 1 "$shard_count"); do
+            if [ "$shard" -gt 1 ]; then
+              shard_list="${shard_list},"
+            fi
+            shard_list="${shard_list}${shard}"
+          done
+          shard_list="${shard_list}]"
+
+          echo "检测到 ${package_count} 个测试包，自动分配 ${shard_count} 个分片。"
+          echo "shard_count=${shard_count}" >> "$GITHUB_OUTPUT"
+          echo "shard_list=${shard_list}" >> "$GITHUB_OUTPUT"
+
   shard:
-    name: 并行测试 ${{ matrix.shard }}/${{ inputs.shard-count }}
+    name: 并行测试 ${{ matrix.shard }}/${{ needs.filter.outputs.shard_count }}
     needs: filter
     if: needs.filter.outputs.run == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(inputs.shard-list) }}
+        shard: ${{ fromJSON(needs.filter.outputs.shard_list) }}
     steps:
       - uses: actions/checkout@v5
 
@@ -135,16 +185,22 @@ jobs:
           key: ${{ steps.lfs.outputs.cache-primary-key }}
 
       - uses: actions/setup-go@v6
-        if: inputs.go-version-file == ''
+        if: inputs.go-version-file != ''
+        with:
+          cache: false
+          go-version-file: ${{ inputs.go-version-file }}
+
+      - uses: actions/setup-go@v6
+        if: inputs.go-version-file == '' && inputs.go-version != ''
         with:
           cache: false
           go-version: ${{ inputs.go-version }}
 
       - uses: actions/setup-go@v6
-        if: inputs.go-version-file != ''
+        if: inputs.go-version-file == '' && inputs.go-version == ''
         with:
           cache: false
-          go-version-file: ${{ inputs.go-version-file }}
+          go-version-file: ${{ inputs.working-directory }}/go.mod
 
       - name: 恢复 Go 缓存
         uses: actions/cache@v4
@@ -244,12 +300,21 @@ jobs:
           CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
           PGPASSWORD: postgres
           SHARD: ${{ matrix.shard }}
-          SHARD_TOTAL: ${{ inputs.shard-count }}
+          SHARD_TOTAL: ${{ needs.filter.outputs.shard_count }}
           TEST_FLAGS: ${{ inputs.test-flags }}
         run: |
           set -euo pipefail
 
-          all_packages=$(go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./... | sort)
+          all_packages=$(git ls-files '*_test.go' |
+            xargs -r -n1 dirname |
+            sort -u |
+            while read -r dir; do
+              if [ "$dir" = "." ]; then
+                echo "."
+              else
+                echo "./$dir"
+              fi
+            done)
           packages=$(printf '%s\n' "$all_packages" | awk -v s="$SHARD" -v t="$SHARD_TOTAL" '(NR-1)%t == s-1')
 
           if [ -z "$packages" ]; then
