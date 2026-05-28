@@ -426,12 +426,18 @@ jobs:
   test:
     name: 常规 Go 测试
     needs: [filter, shard]
-    if: always() && needs.filter.result == 'success'
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: 汇总测试结果
         run: |
           set -euo pipefail
+
+          filter_result="${{ needs.filter.result }}"
+          if [ "$filter_result" != "success" ]; then
+            echo "::error::Go 测试准备阶段未通过：$filter_result"
+            exit 1
+          fi
 
           if [ "${{ needs.filter.outputs.run }}" != "true" ]; then
             echo "无 Go 相关改动，跳过。"
