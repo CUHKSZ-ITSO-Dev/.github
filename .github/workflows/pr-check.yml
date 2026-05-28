@@ -1,4 +1,4 @@
-name: PR 检查
+name: 常规 PR 检查
 
 on:
   workflow_call:
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   pr-check:
-    name: 检查
+    name: 常规 PR 检查
     runs-on: ubuntu-latest
     steps:
       - name: 检查 PR 描述

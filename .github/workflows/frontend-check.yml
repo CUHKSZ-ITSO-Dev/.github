@@ -1,4 +1,4 @@
-name: 前端检查
+name: 常规前端检查
 
 on:
   workflow_call:
@@ -59,7 +59,7 @@ permissions:
 
 jobs:
   frontend:
-    name: 执行
+    name: 常规前端检查
     runs-on: ubuntu-latest
     steps:
       - name: 准备路径过滤配置

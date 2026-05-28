@@ -1,4 +1,4 @@
-name: 迁移检查
+name: 常规迁移检查
 
 on:
   workflow_call:
@@ -97,7 +97,7 @@ permissions:
 
 jobs:
   migration:
-    name: 执行
+    name: 常规迁移检查
     runs-on: ubuntu-latest
     env:
       DB_KIND: ${{ inputs.database-kind }}

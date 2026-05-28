@@ -1,4 +1,4 @@
-name: Go 静态检查
+name: 常规 Go 代码检查
 
 on:
   workflow_call:
@@ -63,7 +63,7 @@ permissions:
 
 jobs:
   golangci:
-    name: 执行
+    name: 常规 Go 代码检查
     runs-on: ubuntu-latest
     steps:
       - name: 准备路径过滤配置

@@ -1,15 +1,15 @@
-name: PR 负责人
+name: 常规 PR 负责人
 
 on:
   workflow_call:
 
 permissions:
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   assign-author:
-    name: 设置
+    name: 常规设置负责人
     runs-on: ubuntu-latest
     steps:
       - name: 无负责人时设置 PR 作者

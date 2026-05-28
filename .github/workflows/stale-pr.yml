@@ -1,4 +1,4 @@
-name: 不活跃 PR
+name: 常规不活跃 PR
 
 on:
   workflow_call:
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   stale-pr:
-    name: 处理
+    name: 常规不活跃 PR 处理
     runs-on: ubuntu-latest
     steps:
       - name: 准备 PR 状态标签
