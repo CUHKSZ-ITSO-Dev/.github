@@ -424,7 +424,7 @@ jobs:
           go test ${TEST_FLAGS} $packages
 
   test:
-    name: 汇总
+    name: 常规 Go 测试
     needs: [filter, shard]
     if: always() && needs.filter.result == 'success'
     runs-on: ubuntu-latest

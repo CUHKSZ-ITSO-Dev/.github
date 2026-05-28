@@ -97,7 +97,7 @@ permissions:
 
 jobs:
   migration:
-    name: 执行
+    name: 常规迁移检查
     runs-on: ubuntu-latest
     env:
       DB_KIND: ${{ inputs.database-kind }}
