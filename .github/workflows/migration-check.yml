@@ -1,4 +1,4 @@
-name: 迁移检查
+name: 常规迁移检查
 
 on:
   workflow_call:

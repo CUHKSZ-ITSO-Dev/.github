@@ -1,4 +1,4 @@
-name: 前端检查
+name: 常规前端检查
 
 on:
   workflow_call:

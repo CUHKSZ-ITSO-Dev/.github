@@ -1,4 +1,4 @@
-name: Go 静态检查
+name: 常规 Go 代码检查
 
 on:
   workflow_call:

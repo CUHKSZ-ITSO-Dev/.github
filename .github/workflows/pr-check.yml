@@ -1,4 +1,4 @@
-name: PR 检查
+name: 常规 PR 检查
 
 on:
   workflow_call:
