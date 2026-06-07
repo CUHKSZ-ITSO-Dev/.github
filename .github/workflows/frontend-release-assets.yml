@@ -1,0 +1,225 @@
+name: 常规前端制品发布
+
+on:
+  workflow_call:
+    inputs:
+      release-tag:
+        required: true
+        type: string
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+      working-directory:
+        required: false
+        type: string
+        default: "."
+      node-version:
+        required: false
+        type: string
+        default: "22"
+      pnpm-version:
+        required: false
+        type: string
+        default: ""
+      cache-dependency-path:
+        required: false
+        type: string
+        default: ""
+      install-command:
+        required: false
+        type: string
+        default: "pnpm install --frozen-lockfile"
+      check-command:
+        required: false
+        type: string
+        default: ""
+      build-command:
+        required: false
+        type: string
+        default: "pnpm build"
+      dist-dir:
+        required: false
+        type: string
+        default: dist
+      asset-prefix:
+        required: false
+        type: string
+        default: ui-dist
+      release-title:
+        required: false
+        type: string
+        default: ""
+      release-notes:
+        required: false
+        type: string
+        default: ""
+      prerelease:
+        required: false
+        type: boolean
+        default: false
+      prerelease-on-hyphen:
+        required: false
+        type: boolean
+        default: true
+      include-release-json:
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      asset:
+        description: "发布制品文件名"
+        value: ${{ jobs.release.outputs.asset }}
+      sha256:
+        description: "发布制品 SHA256"
+        value: ${{ jobs.release.outputs.sha256 }}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 常规前端制品发布
+    runs-on: ubuntu-latest
+    outputs:
+      asset: ${{ steps.package.outputs.asset }}
+      sha256: ${{ steps.package.outputs.sha256 }}
+    steps:
+      - name: 校验 release tag
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
+            echo "::error::release-tag 只能包含字母、数字、点、下划线和短横线，且必须以字母或数字开头。"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || inputs.release-tag }}
+
+      - name: 安装 pnpm
+        if: inputs.pnpm-version == ''
+        uses: pnpm/action-setup@v6
+
+      - name: 安装指定版本 pnpm
+        if: inputs.pnpm-version != ''
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ inputs.pnpm-version }}
+
+      - name: 安装 Node.js
+        if: inputs.cache-dependency-path == ''
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+
+      - name: 安装 Node.js 并配置缓存路径
+        if: inputs.cache-dependency-path != ''
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: 安装依赖
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.install-command }}
+
+      - name: 执行发布前检查
+        if: inputs.check-command != ''
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.check-command }}
+
+      - name: 构建前端
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.build-command }}
+
+      - name: 打包发布制品
+        id: package
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          DIST_DIR: ${{ inputs.dist-dir }}
+          ASSET_PREFIX: ${{ inputs.asset-prefix }}
+          INCLUDE_RELEASE_JSON: ${{ inputs.include-release-json }}
+        run: |
+          set -euo pipefail
+
+          asset="${ASSET_PREFIX}-${RELEASE_TAG}.tar.gz"
+          dist_path="${WORKING_DIRECTORY%/}/${DIST_DIR}"
+          if [ ! -d "$dist_path" ]; then
+            echo "::error::前端构建目录不存在：${dist_path}"
+            exit 1
+          fi
+
+          (
+            cd "$dist_path"
+            find . -mindepth 1 -maxdepth 1 -print0 | tar --null -czf "$GITHUB_WORKSPACE/${asset}" --files-from -
+          )
+
+          sha256sum "$asset" | tee "${asset}.sha256"
+          sha256="$(cut -d ' ' -f1 "${asset}.sha256")"
+
+          if [ "$INCLUDE_RELEASE_JSON" = "true" ]; then
+            cat > release.json <<JSON
+          {
+            "tag": "${RELEASE_TAG}",
+            "assetName": "${asset}",
+            "sha256": "${sha256}",
+            "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "sourceRepository": "${GITHUB_REPOSITORY}",
+            "sourceSha": "${GITHUB_SHA}"
+          }
+          JSON
+          fi
+
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+
+      - name: 创建或更新 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          RELEASE_TITLE: ${{ inputs.release-title || inputs.release-tag }}
+          RELEASE_NOTES: ${{ inputs.release-notes }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE_ON_HYPHEN: ${{ inputs.prerelease-on-hyphen }}
+          ASSET: ${{ steps.package.outputs.asset }}
+          SHA256: ${{ steps.package.outputs.sha256 }}
+          INCLUDE_RELEASE_JSON: ${{ inputs.include-release-json }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flags=()
+          if [ "$PRERELEASE" = "true" ] || { [ "$PRERELEASE_ON_HYPHEN" = "true" ] && [[ "$RELEASE_TAG" == *-* ]]; }; then
+            prerelease_flags+=(--prerelease)
+          fi
+
+          if [ -z "$RELEASE_NOTES" ]; then
+            RELEASE_NOTES="前端静态制品发布 ${RELEASE_TAG}
+
+          Asset: ${ASSET}
+          SHA256: ${SHA256}"
+          fi
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
+              --notes "$RELEASE_NOTES" \
+              "${prerelease_flags[@]}"
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
+              --notes "$RELEASE_NOTES" \
+              "${prerelease_flags[@]}"
+          fi
+
+          upload_files=("$ASSET" "${ASSET}.sha256")
+          if [ "$INCLUDE_RELEASE_JSON" = "true" ]; then
+            upload_files+=(release.json)
+          fi
+          gh release upload "$RELEASE_TAG" "${upload_files[@]}" --clobber

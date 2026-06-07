@@ -1,0 +1,103 @@
+name: 常规 GitOps 更新
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        required: true
+        type: string
+      ref:
+        required: false
+        type: string
+        default: main
+      values-file:
+        required: true
+        type: string
+      yq-expression:
+        required: true
+        type: string
+      print-expression:
+        required: false
+        type: string
+        default: ""
+      commit-message:
+        required: true
+        type: string
+      checkout-path:
+        required: false
+        type: string
+        default: gitops
+      yq-version:
+        required: false
+        type: string
+        default: v4.45.4
+    secrets:
+      deploy-key:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: 常规 GitOps 更新
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GitOps 仓库
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.repository }}
+          ssh-key: ${{ secrets.deploy-key }}
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          path: ${{ inputs.checkout-path }}
+
+      - name: 安装 yq
+        env:
+          YQ_VERSION: ${{ inputs.yq-version }}
+        run: |
+          set -euo pipefail
+          sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: 更新 values
+        working-directory: ${{ inputs.checkout-path }}
+        env:
+          VALUES_FILE: ${{ inputs.values-file }}
+          YQ_EXPRESSION: ${{ inputs.yq-expression }}
+          PRINT_EXPRESSION: ${{ inputs.print-expression }}
+        run: |
+          set -euo pipefail
+          yq -i "$YQ_EXPRESSION" "$VALUES_FILE"
+          if [ -n "$PRINT_EXPRESSION" ]; then
+            yq "$PRINT_EXPRESSION" "$VALUES_FILE"
+          fi
+
+      - name: Commit and push
+        working-directory: ${{ inputs.checkout-path }}
+        env:
+          COMMIT_MESSAGE: ${{ inputs.commit-message }}
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          if git diff --cached --quiet; then
+            echo "目标文件未变化，跳过提交。"
+            exit 0
+          fi
+
+          git commit -m "$COMMIT_MESSAGE"
+          for i in 1 2 3 4 5; do
+            if git pull --rebase origin "$REF" && git push origin "HEAD:${REF}"; then
+              echo "pushed on attempt ${i}"
+              exit 0
+            fi
+            echo "push 冲突，重试 ${i}/5"
+            sleep $((RANDOM % 5 + 2))
+          done
+
+          echo "rebase-retry 后仍 push 失败" >&2
+          exit 1

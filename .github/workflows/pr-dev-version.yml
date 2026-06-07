@@ -1,0 +1,60 @@
+name: 常规 PR Dev 版本
+
+on:
+  workflow_call:
+    inputs:
+      prefix:
+        required: false
+        type: string
+        default: pr
+      environment:
+        required: false
+        type: string
+        default: dev
+      pr-number:
+        required: false
+        type: string
+        default: ""
+      head-sha:
+        required: false
+        type: string
+        default: ""
+      sha-length:
+        required: false
+        type: number
+        default: 12
+    outputs:
+      version_tag:
+        description: "生成的 PR dev 版本标签"
+        value: ${{ jobs.version.outputs.version_tag }}
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: 常规生成版本
+    runs-on: ubuntu-latest
+    outputs:
+      version_tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - name: 生成 PR dev 版本标签
+        id: tag
+        env:
+          PREFIX: ${{ inputs.prefix }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          PR_NUMBER: ${{ inputs.pr-number || github.event.pull_request.number }}
+          HEAD_SHA: ${{ inputs.head-sha || github.event.pull_request.head.sha || github.sha }}
+          SHA_LENGTH: ${{ inputs.sha-length }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::error::PR number 为空，无法生成 PR dev 版本标签。"
+            exit 1
+          fi
+
+          short_sha="$(printf '%s' "$HEAD_SHA" | cut -c1-"$SHA_LENGTH")"
+          value="${PREFIX}-${PR_NUMBER}-${ENVIRONMENT}-${short_sha}"
+          echo "Generated version tag: ${value}"
+          echo "value=${value}" >> "$GITHUB_OUTPUT"
