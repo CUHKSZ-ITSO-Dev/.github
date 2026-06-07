@@ -158,6 +158,7 @@ jobs:
           import html
           import json
           import os
+          import subprocess
           from datetime import datetime
           from pathlib import Path
           from zoneinfo import ZoneInfo
@@ -165,21 +166,40 @@ jobs:
           dist_path = Path(os.environ["DIST_PATH"])
           version = os.environ["VERSION_PAGE_VERSION"]
           sha = os.environ["VERSION_PAGE_SHA"]
-          built_at = datetime.now(ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])).isoformat(timespec="seconds")
+          short_sha = sha[:7] if sha else "-"
+          built_at = datetime.now(ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])).strftime("%Y-%m-%d %H:%M:%S")
           source_url = os.environ["VERSION_PAGE_SOURCE_URL"]
           source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
+          commit_url = ""
+          if sha and os.environ.get("GITHUB_SERVER_URL") and os.environ.get("GITHUB_REPOSITORY"):
+              commit_url = f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{sha}'
+          try:
+              commit_subject = subprocess.check_output(
+                  ["git", "show", "-s", "--format=%s", sha],
+                  cwd=os.environ["GITHUB_WORKSPACE"],
+                  text=True,
+              ).strip()
+          except Exception:
+              commit_subject = ""
+          commit_label = f"{commit_subject} ({short_sha})" if commit_subject else short_sha
 
           link_html = (
               f'<a href="{html.escape(source_url, quote=True)}" rel="noreferrer">{html.escape(source_label)}</a>'
               if source_url
               else html.escape(source_label)
           )
+          commit_html = (
+              f'<a href="{html.escape(commit_url, quote=True)}" rel="noreferrer">{html.escape(commit_label)}</a>'
+              if commit_url
+              else html.escape(commit_label)
+          )
           version_payload = json.dumps(
               {
-                  "version": version,
-                  "sha": sha,
-                  "builtAt": built_at,
-                  "pullRequest": source_url or "",
+                  "版本": version,
+                  "提交": commit_label,
+                  "提交SHA": sha,
+                  "构建时间": built_at,
+                  "拉取请求": source_label,
               },
               ensure_ascii=False,
               indent=2,
@@ -190,7 +210,7 @@ jobs:
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
-              <title>Dev Version</title>
+              <title>开发服版本</title>
               <style>
                 body {{
                   margin: 0;
@@ -246,13 +266,13 @@ jobs:
               <main>
                 <h1>开发服版本</h1>
                 <dl>
-                  <dt>Version</dt>
+                  <dt>版本</dt>
                   <dd>{html.escape(version)}</dd>
-                  <dt>Commit</dt>
-                  <dd>{html.escape(sha)}</dd>
-                  <dt>Built At</dt>
+                  <dt>提交</dt>
+                  <dd>{commit_html}</dd>
+                  <dt>构建时间</dt>
                   <dd>{html.escape(built_at)}</dd>
-                  <dt>Pull Request</dt>
+                  <dt>拉取请求</dt>
                   <dd>{link_html}</dd>
                 </dl>
                 <pre>{html.escape(version_payload)}</pre>
@@ -277,12 +297,12 @@ jobs:
               if (!frame) {{
                 frame = document.createElement("iframe");
                 frame.id = "__dev_version_page__";
-                frame.title = "Dev Version";
+                frame.title = "开发服版本";
                 frame.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:2147483647;background:#f6f8fb;";
                 document.documentElement.appendChild(frame);
               }}
               frame.srcdoc = html;
-              document.title = "Dev Version";
+              document.title = "开发服版本";
             }};
             if (document.readyState === "loading") {{
               document.addEventListener("DOMContentLoaded", render, {{ once: true }});
