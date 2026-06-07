@@ -22,7 +22,7 @@ on:
       sha-length:
         required: false
         type: number
-        default: 12
+        default: 7
       run-suffix:
         required: false
         type: string
