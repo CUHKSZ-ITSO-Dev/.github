@@ -59,6 +59,34 @@ on:
         required: false
         type: boolean
         default: false
+      version-page-enabled:
+        required: false
+        type: boolean
+        default: false
+      version-page-version:
+        required: false
+        type: string
+        default: ""
+      version-page-sha:
+        required: false
+        type: string
+        default: ""
+      version-page-source-url:
+        required: false
+        type: string
+        default: ""
+      version-page-source-label:
+        required: false
+        type: string
+        default: ""
+      version-page-timezone:
+        required: false
+        type: string
+        default: Asia/Shanghai
+      dist-dir:
+        required: false
+        type: string
+        default: dist
 
 permissions:
   contents: read
@@ -104,6 +132,137 @@ jobs:
       - name: 构建前端
         working-directory: ${{ inputs.working-directory }}
         run: ${{ inputs.build-command }}
+
+      - name: 生成版本页面
+        if: inputs.version-page-enabled
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          DIST_DIR: ${{ inputs.dist-dir }}
+          VERSION_PAGE_VERSION: ${{ inputs.version-page-version || inputs.version-tag }}
+          VERSION_PAGE_SHA: ${{ inputs.version-page-sha || github.sha }}
+          VERSION_PAGE_SOURCE_URL: ${{ inputs.version-page-source-url }}
+          VERSION_PAGE_SOURCE_LABEL: ${{ inputs.version-page-source-label }}
+          VERSION_PAGE_TIMEZONE: ${{ inputs.version-page-timezone }}
+        run: |
+          set -euo pipefail
+
+          dist_path="${WORKING_DIRECTORY%/}/${DIST_DIR}"
+          if [ ! -d "$dist_path" ]; then
+            echo "::error::前端构建目录不存在：${dist_path}"
+            exit 1
+          fi
+
+          export DIST_PATH="$dist_path"
+
+          python3 <<'PY'
+          import html
+          import json
+          import os
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          dist_path = Path(os.environ["DIST_PATH"])
+          version = os.environ["VERSION_PAGE_VERSION"]
+          sha = os.environ["VERSION_PAGE_SHA"]
+          built_at = datetime.now(ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])).isoformat(timespec="seconds")
+          source_url = os.environ["VERSION_PAGE_SOURCE_URL"]
+          source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
+
+          link_html = (
+              f'<a href="{html.escape(source_url, quote=True)}" rel="noreferrer">{html.escape(source_label)}</a>'
+              if source_url
+              else html.escape(source_label)
+          )
+          version_payload = json.dumps(
+              {
+                  "version": version,
+                  "sha": sha,
+                  "builtAt": built_at,
+                  "pullRequest": source_url or "",
+              },
+              ensure_ascii=False,
+              indent=2,
+          )
+
+          output = dist_path / "version" / "index.html"
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(f"""<!doctype html>
+          <html lang="zh-CN">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>Dev Version</title>
+              <style>
+                body {{
+                  margin: 0;
+                  min-height: 100vh;
+                  display: grid;
+                  place-items: center;
+                  background: #f6f8fb;
+                  color: #172033;
+                  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                }}
+                main {{
+                  width: min(720px, calc(100vw - 32px));
+                  padding: 28px;
+                  border: 1px solid #d8dee9;
+                  border-radius: 8px;
+                  background: #ffffff;
+                  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+                }}
+                h1 {{
+                  margin: 0 0 20px;
+                  font-size: 22px;
+                }}
+                dl {{
+                  display: grid;
+                  grid-template-columns: 120px 1fr;
+                  gap: 12px 16px;
+                  margin: 0 0 22px;
+                }}
+                dt {{
+                  color: #64748b;
+                  font-weight: 600;
+                }}
+                dd {{
+                  margin: 0;
+                  word-break: break-all;
+                }}
+                a {{
+                  color: #155eef;
+                }}
+                pre {{
+                  margin: 0;
+                  padding: 16px;
+                  overflow: auto;
+                  border-radius: 6px;
+                  background: #0f172a;
+                  color: #e2e8f0;
+                  font-size: 13px;
+                  line-height: 1.6;
+                }}
+              </style>
+            </head>
+            <body>
+              <main>
+                <h1>开发服版本</h1>
+                <dl>
+                  <dt>Version</dt>
+                  <dd>{html.escape(version)}</dd>
+                  <dt>Commit</dt>
+                  <dd>{html.escape(sha)}</dd>
+                  <dt>Built At</dt>
+                  <dd>{html.escape(built_at)}</dd>
+                  <dt>Pull Request</dt>
+                  <dd>{link_html}</dd>
+                </dl>
+                <pre>{html.escape(version_payload)}</pre>
+              </main>
+            </body>
+          </html>
+          """, encoding="utf-8")
+          PY
 
       - name: 准备镜像元数据
         id: plan
