@@ -11,6 +11,10 @@ on:
         required: false
         type: string
         default: dev
+      repository-slug:
+        required: false
+        type: string
+        default: ""
       pr-number:
         required: false
         type: string
@@ -47,6 +51,8 @@ jobs:
         env:
           PREFIX: ${{ inputs.prefix }}
           ENVIRONMENT: ${{ inputs.environment }}
+          REPOSITORY_SLUG: ${{ inputs.repository-slug }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr-number || github.event.pull_request.number }}
           HEAD_SHA: ${{ inputs.head-sha || github.event.pull_request.head.sha || github.sha }}
           SHA_LENGTH: ${{ inputs.sha-length }}
@@ -60,7 +66,21 @@ jobs:
           fi
 
           short_sha="$(printf '%s' "$HEAD_SHA" | cut -c1-"$SHA_LENGTH")"
-          value="${ENVIRONMENT}-${PREFIX}-${PR_NUMBER}-${short_sha}"
+          repo_slug="$REPOSITORY_SLUG"
+          if [ -z "$repo_slug" ]; then
+            repo_slug="${SOURCE_REPOSITORY##*/}"
+          fi
+          repo_slug="$(
+            printf '%s' "$repo_slug" |
+              tr '[:upper:]' '[:lower:]' |
+              sed -E 's/[^0-9a-z]+/-/g; s/^-+//; s/-+$//'
+          )"
+          if [ -z "$repo_slug" ]; then
+            echo "::error::仓库 slug 为空，无法生成 PR dev 版本标签。"
+            exit 1
+          fi
+
+          value="${ENVIRONMENT}-${repo_slug}-${PREFIX}-${PR_NUMBER}-${short_sha}"
           if [ -n "$RUN_SUFFIX" ]; then
             value="${value}-${RUN_SUFFIX}"
           fi
