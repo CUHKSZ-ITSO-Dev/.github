@@ -15,7 +15,7 @@
 | `.github/workflows/go-test.yml` | 统一 Go 测试，支持自动分片、LFS、CGO 和可选测试数据库。 | `Chat`、`open-platform`、`UniAuth` |
 | `.github/workflows/frontend-check.yml` | 统一前端检查，支持 Node/pnpm、缓存、Playwright、glob 变更过滤和自定义检查命令。 | `UI`、`UniAuth` |
 | `.github/workflows/migration-check.yml` | 统一 PostgreSQL / SQL Server 迁移检查，默认保护历史迁移不可修改或删除。 | `Chat`、`open-platform`、`UniAuth` |
-| `.github/workflows/pr-dev-version.yml` | 统一生成 PR 开发服发布版本标签，不包含具体部署目标；默认格式为 `dev-pr-371-49afc8f`，使用环境、PR 号和 7 位短 SHA。保留可选 run 后缀仅用于明确需要绕过缓存或强制重发同一源码版本的特殊场景。 | `UI`、`UniAuth` |
+| `.github/workflows/pr-dev-version.yml` | 统一生成 PR 开发服发布版本标签，不包含具体部署目标；默认从调用仓库名自动生成小写 slug，格式为 `dev-uniauth-pr-371-49afc8f`，使用环境、仓库 slug、PR 号和 7 位短 SHA。仓库名和服务名不一致时可传入 `repository-slug` 覆盖；保留可选 run 后缀仅用于明确需要绕过缓存或强制重发同一源码版本的特殊场景。 | `UI`、`UniAuth` |
 | `.github/workflows/docker-build-push.yml` | 统一 Docker 镜像构建与推送流程，由业务仓库传入镜像名、上下文和 Dockerfile。 | `UniAuth` |
 | `.github/workflows/frontend-docker-build-push.yml` | 统一前端构建后再构建 Docker 镜像的流程，用于 Dockerfile 依赖预构建静态目录的项目；支持按需生成中文 `version/index.html` 开发服版本页，展示版本、可点击完整提交 SHA、构建时间和可点击拉取请求，并提供 JSON 一键复制按钮，在 SPA fallback 命中 `/version` 路径时覆盖展示同一版本页。 | `UniAuth` |
 | `.github/workflows/frontend-release-assets.yml` | 统一前端静态制品构建、打包和 GitHub Release 发布流程；支持按需生成中文 `version/index.html` 开发服版本页，展示版本、可点击完整提交 SHA、构建时间和可点击拉取请求，并提供 JSON 一键复制按钮，在 SPA fallback 命中 `/version` 路径时覆盖展示同一版本页。 | `UI` |
