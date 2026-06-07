@@ -367,11 +367,12 @@ jobs:
 
           index_file = dist_path / "index.html"
           if index_file.exists():
+              version_html_literal = json.dumps(version_html, ensure_ascii=False).replace("</", "<\\/")
               fallback_script = f"""<script>
           (() => {{
             const path = window.location.pathname.replace(/\\/+$/, "");
             if (!/(^|\\/)version$/.test(path)) return;
-            const html = {json.dumps(version_html, ensure_ascii=False)};
+            const html = {version_html_literal};
             const render = () => {{
               let frame = document.getElementById("__dev_version_page__");
               if (!frame) {{
