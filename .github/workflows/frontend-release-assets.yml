@@ -301,9 +301,26 @@ jobs:
             const path = window.location.pathname.replace(/\\/+$/, "");
             if (!/(^|\\/)version$/.test(path)) return;
             const html = {json.dumps(version_html, ensure_ascii=False)};
-            document.open();
-            document.write(html);
-            document.close();
+            const render = () => {{
+              let frame = document.getElementById("__dev_version_page__");
+              if (!frame) {{
+                frame = document.createElement("iframe");
+                frame.id = "__dev_version_page__";
+                frame.title = "Dev Version";
+                frame.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:2147483647;background:#f6f8fb;";
+                document.documentElement.appendChild(frame);
+              }}
+              frame.srcdoc = html;
+              document.title = "Dev Version";
+            }};
+            if (document.readyState === "loading") {{
+              document.addEventListener("DOMContentLoaded", render, {{ once: true }});
+            }}
+            window.addEventListener("load", render, {{ once: true }});
+            render();
+            setTimeout(render, 50);
+            setTimeout(render, 250);
+            setTimeout(render, 1000);
           }})();
           </script>
           """
