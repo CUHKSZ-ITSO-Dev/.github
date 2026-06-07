@@ -60,7 +60,7 @@ jobs:
           fi
 
           short_sha="$(printf '%s' "$HEAD_SHA" | cut -c1-"$SHA_LENGTH")"
-          value="${PREFIX}-${PR_NUMBER}-${ENVIRONMENT}-${short_sha}"
+          value="${ENVIRONMENT}-${PREFIX}-${PR_NUMBER}-${short_sha}"
           if [ -n "$RUN_SUFFIX" ]; then
             value="${value}-${RUN_SUFFIX}"
           fi
