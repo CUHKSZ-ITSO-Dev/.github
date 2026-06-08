@@ -90,6 +90,10 @@ on:
         required: false
         type: string
         default: Asia/Shanghai
+      version-page-deploy-triggered-at:
+        required: false
+        type: string
+        default: ""
     outputs:
       asset:
         description: "发布制品文件名"
@@ -172,6 +176,7 @@ jobs:
           VERSION_PAGE_SOURCE_URL: ${{ inputs.version-page-source-url }}
           VERSION_PAGE_SOURCE_LABEL: ${{ inputs.version-page-source-label }}
           VERSION_PAGE_TIMEZONE: ${{ inputs.version-page-timezone }}
+          VERSION_PAGE_DEPLOY_TRIGGERED_AT: ${{ inputs.version-page-deploy-triggered-at }}
         run: |
           set -euo pipefail
 
@@ -195,6 +200,7 @@ jobs:
           version = os.environ["VERSION_PAGE_VERSION"]
           sha = os.environ["VERSION_PAGE_SHA"]
           built_at = datetime.now(ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])).strftime("%Y-%m-%d %H:%M:%S")
+          triggered_at = os.environ["VERSION_PAGE_DEPLOY_TRIGGERED_AT"].strip()
           source_url = os.environ["VERSION_PAGE_SOURCE_URL"]
           source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
           commit_url = ""
@@ -211,16 +217,23 @@ jobs:
               if commit_url
               else html.escape(sha or "-")
           )
-          version_payload = json.dumps(
+          version_data = {
+              "状态": "已加载",
+              "版本": version,
+              "提交SHA": sha,
+              "提交SHA链接": commit_url,
+          }
+          if triggered_at:
+              version_data["CI 触发时间"] = triggered_at.replace("T", " ").split("+", 1)[0]
+          version_data.update(
               {
-                  "版本": version,
-                  "提交SHA": sha,
                   "构建时间": built_at,
                   "拉取请求": source_label,
-              },
-              ensure_ascii=False,
-              indent=2,
+                  "拉取请求链接": source_url,
+              }
           )
+          version_payload = json.dumps(version_data, ensure_ascii=False, indent=2)
+          (dist_path / "version-data.json").write_text(version_payload + "\n", encoding="utf-8")
 
           version_html = f"""<!doctype html>
           <html lang="zh-CN">
@@ -305,10 +318,13 @@ jobs:
               <main>
                 <h1>开发服版本</h1>
                 <dl>
+                  <dt>状态</dt>
+                  <dd>已加载</dd>
                   <dt>版本</dt>
                   <dd>{html.escape(version)}</dd>
                   <dt>提交SHA</dt>
                   <dd>{commit_html}</dd>
+                  {f'<dt>CI 触发时间</dt><dd>{html.escape(version_data["CI 触发时间"])}</dd>' if "CI 触发时间" in version_data else ""}
                   <dt>构建时间</dt>
                   <dd>{html.escape(built_at)}</dd>
                   <dt>拉取请求</dt>
