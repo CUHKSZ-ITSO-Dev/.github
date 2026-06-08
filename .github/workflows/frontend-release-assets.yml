@@ -248,8 +248,8 @@ jobs:
               "版本": version,
               "提交SHA": sha,
               "提交SHA链接": commit_url,
+              "CI 触发时间": deploy_triggered_at,
               "构建时间": built_at,
-              "部署触发时间": deploy_triggered_at,
               "拉取请求": source_label,
               "拉取请求链接": source_url,
           }
@@ -262,8 +262,8 @@ jobs:
                       "版本": "-",
                       "提交SHA": "-",
                       "提交SHA链接": "-",
+                      "CI 触发时间": "-",
                       "构建时间": "-",
-                      "部署触发时间": "-",
                       "拉取请求": "-",
                       "拉取请求链接": "-",
                   },
@@ -287,10 +287,10 @@ jobs:
                     <dd id="extra-version">-</dd>
                     <dt>提交SHA</dt>
                     <dd id="extra-sha">-</dd>
+                    <dt>CI 触发时间</dt>
+                    <dd id="extra-deploy-triggered-at">-</dd>
                     <dt>构建时间</dt>
                     <dd id="extra-built-at">-</dd>
-                    <dt>部署触发时间</dt>
-                    <dd id="extra-deploy-triggered-at">-</dd>
                     <dt id="extra-effective-at-label" hidden>实际生效时间</dt>
                     <dd id="extra-effective-at" hidden>-</dd>
                     <dt>拉取请求</dt>
@@ -402,10 +402,10 @@ jobs:
                     <dd>{html.escape(version)}</dd>
                     <dt>提交SHA</dt>
                     <dd>{commit_html}</dd>
+                    <dt>CI 触发时间</dt>
+                    <dd>{html.escape(deploy_triggered_at)}</dd>
                     <dt>构建时间</dt>
                     <dd>{html.escape(built_at)}</dd>
-                    <dt>部署触发时间</dt>
-                    <dd>{html.escape(deploy_triggered_at)}</dd>
                     <dt id="primary-effective-at-label" hidden>实际生效时间</dt>
                     <dd id="primary-effective-at" hidden>-</dd>
                     <dt>拉取请求</dt>
@@ -429,8 +429,8 @@ jobs:
                     "版本": "-",
                     "提交SHA": "-",
                     "提交SHA链接": "-",
+                    "CI 触发时间": "-",
                     "构建时间": "-",
-                    "部署触发时间": "-",
                     "拉取请求": "-",
                     "拉取请求链接": "-"
                   }});
@@ -537,8 +537,8 @@ jobs:
                     result["版本"] = values.version || "-";
                     result["提交SHA"] = values.sha || "-";
                     result["提交SHA链接"] = values.commitUrl || "-";
+                    result["CI 触发时间"] = values.deployTriggeredAt || "-";
                     result["构建时间"] = values.builtAt || "-";
-                    result["部署触发时间"] = values.deployTriggeredAt || "-";
                     if (values.effectiveAt) result["实际生效时间"] = values.effectiveAt;
                     result["拉取请求"] = values.prLabel || "-";
                     result["拉取请求链接"] = values.prUrl || "-";
@@ -563,7 +563,7 @@ jobs:
                         sha: primaryPayload["提交SHA"],
                         commitUrl: primaryPayload["提交SHA链接"],
                         builtAt: primaryPayload["构建时间"],
-                        deployTriggeredAt: primaryPayload["部署触发时间"],
+                        deployTriggeredAt: primaryPayload["CI 触发时间"],
                         effectiveAt,
                         prLabel: primaryPayload["拉取请求"],
                         prUrl: primaryPayload["拉取请求链接"]
@@ -591,7 +591,7 @@ jobs:
                         const version = pick(data, "版本", "version");
                         const sha = pick(data, "提交SHA", "sha", "commitSha");
                         const builtAt = pick(data, "构建时间", "builtAt", "built_at");
-                        const deployTriggeredAt = pick(data, "部署触发时间", "deployTriggeredAt", "deploy_triggered_at");
+                        const deployTriggeredAt = pick(data, "CI 触发时间", "部署触发时间", "deployTriggeredAt", "deploy_triggered_at");
                         const effectiveAt = pick(data, "实际生效时间", "effectiveAt", "effective_at") || result.effectiveAt;
                         const prLabel = pick(data, "拉取请求", "pullRequest", "pull_request");
                         const prUrl = pick(data, "拉取请求链接", "pullRequestUrl", "pull_request_url");

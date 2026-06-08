@@ -205,8 +205,8 @@ jobs:
               "版本": version,
               "提交SHA": sha,
               "提交SHA链接": commit_url,
+              "CI 触发时间": deploy_triggered_at,
               "构建时间": built_at,
-              "部署触发时间": deploy_triggered_at,
               "拉取请求": source_label,
               "拉取请求链接": source_url,
           }
@@ -301,10 +301,10 @@ jobs:
                   <dd>{html.escape(version)}</dd>
                   <dt>提交SHA</dt>
                   <dd>{commit_html}</dd>
+                  <dt>CI 触发时间</dt>
+                  <dd>{html.escape(deploy_triggered_at)}</dd>
                   <dt>构建时间</dt>
                   <dd>{html.escape(built_at)}</dd>
-                  <dt>部署触发时间</dt>
-                  <dd>{html.escape(deploy_triggered_at)}</dd>
                   <dt id="effective-at-label" hidden>实际生效时间</dt>
                   <dd id="effective-at" hidden>-</dd>
                   <dt>拉取请求</dt>
@@ -365,8 +365,8 @@ jobs:
                       "版本": payloadObject["版本"],
                       "提交SHA": payloadObject["提交SHA"],
                       "提交SHA链接": payloadObject["提交SHA链接"],
+                      "CI 触发时间": payloadObject["CI 触发时间"],
                       "构建时间": payloadObject["构建时间"],
-                      "部署触发时间": payloadObject["部署触发时间"],
                       "实际生效时间": value,
                       "拉取请求": payloadObject["拉取请求"],
                       "拉取请求链接": payloadObject["拉取请求链接"]
