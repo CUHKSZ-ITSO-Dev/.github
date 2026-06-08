@@ -318,7 +318,7 @@ jobs:
               </main>
               <script>
                 (() => {{
-                  const payloadObject = {json.dumps(version_payload_data, ensure_ascii=False)};
+                  let payloadObject = {json.dumps(version_payload_data, ensure_ascii=False)};
                   let payload = JSON.stringify(payloadObject, null, 2);
                   const button = document.getElementById("copy-json");
                   const jsonNode = document.getElementById("version-json");
@@ -360,7 +360,17 @@ jobs:
                     node.textContent = value;
                     node.hidden = false;
                     if (label) label.hidden = false;
-                    payloadObject["实际生效时间"] = value;
+                    payloadObject = {{
+                      "状态": payloadObject["状态"],
+                      "版本": payloadObject["版本"],
+                      "提交SHA": payloadObject["提交SHA"],
+                      "提交SHA链接": payloadObject["提交SHA链接"],
+                      "构建时间": payloadObject["构建时间"],
+                      "部署触发时间": payloadObject["部署触发时间"],
+                      "实际生效时间": value,
+                      "拉取请求": payloadObject["拉取请求"],
+                      "拉取请求链接": payloadObject["拉取请求链接"]
+                    }};
                     payload = JSON.stringify(payloadObject, null, 2);
                     if (jsonNode) jsonNode.textContent = payload;
                   }};
