@@ -218,6 +218,7 @@ jobs:
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <base target="_blank" />
               <title>开发服</title>
               <style>
                 body {{
@@ -328,6 +329,13 @@ jobs:
                   let payload = JSON.stringify(payloadObject, null, 2);
                   const button = document.getElementById("copy-json");
                   const jsonNode = document.getElementById("version-json");
+                  document.addEventListener("click", (event) => {{
+                    if (event.defaultPrevented) return;
+                    const anchor = event.target?.closest?.("a[href]");
+                    if (!anchor) return;
+                    event.preventDefault();
+                    window.open(anchor.href, "_blank", "noopener,noreferrer");
+                  }});
                   const setLabel = (text) => {{
                     if (!button) return;
                     button.textContent = text;

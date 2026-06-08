@@ -227,11 +227,21 @@ jobs:
           source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
           repository_name = os.environ.get("GITHUB_REPOSITORY", "").rsplit("/", 1)[-1] or "当前仓库"
           primary_service_name = repository_name
-          raw_extra_service_name = os.environ["VERSION_PAGE_EXTRA_SERVICE_NAME"].strip()
-          extra_service_url = os.environ["VERSION_PAGE_EXTRA_SERVICE_URL"].strip()
+          raw_extra_service_names = [
+              item.strip()
+              for item in os.environ["VERSION_PAGE_EXTRA_SERVICE_NAME"].replace(",", "\n").splitlines()
+              if item.strip()
+          ]
+          extra_service_urls = [
+              item.strip()
+              for item in os.environ["VERSION_PAGE_EXTRA_SERVICE_URL"].replace(",", "\n").splitlines()
+              if item.strip()
+          ]
 
           def infer_extra_service_name(raw_name, service_url):
               normalized_url = service_url.lower()
+              if "openplatform" in normalized_url or "open_platform" in normalized_url or "open-platform" in normalized_url:
+                  return "Open Platform"
               if "chat" in normalized_url:
                   return "Chat"
               if "uniauth" in normalized_url:
@@ -243,7 +253,15 @@ jobs:
                   return raw_name.strip() or "关联服务"
               return "关联服务"
 
-          extra_service_name = infer_extra_service_name(raw_extra_service_name, extra_service_url) if extra_service_url else ""
+          extra_services = []
+          used_extra_service_names = set()
+          for index, extra_service_url in enumerate(extra_service_urls):
+              raw_name = raw_extra_service_names[index] if index < len(raw_extra_service_names) else ""
+              service_name = infer_extra_service_name(raw_name, extra_service_url)
+              if service_name in used_extra_service_names:
+                  service_name = f"{service_name} {index + 1}"
+              used_extra_service_names.add(service_name)
+              extra_services.append({"name": service_name, "url": extra_service_url})
           commit_url = ""
           if sha and os.environ.get("GITHUB_SERVER_URL") and os.environ.get("GITHUB_REPOSITORY"):
               commit_url = f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{sha}'
@@ -269,10 +287,10 @@ jobs:
               "拉取请求链接": source_url,
           }
           version_payload_data = primary_payload
-          if extra_service_url:
-              version_payload_data = {
-                  primary_service_name: primary_payload,
-                  extra_service_name: {
+          if extra_services:
+              version_payload_data = {primary_service_name: primary_payload}
+              for service in extra_services:
+                  version_payload_data[service["name"]] = {
                       "状态": "加载中",
                       "版本": "-",
                       "提交SHA": "-",
@@ -281,8 +299,7 @@ jobs:
                       "构建时间": "-",
                       "拉取请求": "-",
                       "拉取请求链接": "-",
-                  },
-              }
+                  }
           version_payload = json.dumps(
               version_payload_data,
               ensure_ascii=False,
@@ -290,25 +307,25 @@ jobs:
           )
           page_title = "开发服"
           extra_section_html = ""
-          if extra_service_url:
-              extra_section_html = f"""
-                <section class="service-card" data-extra-service-url="{html.escape(extra_service_url, quote=True)}" data-extra-service-name="{html.escape(extra_service_name, quote=True)}">
-                  <h2>{html.escape(extra_service_name)}</h2>
+          for index, service in enumerate(extra_services):
+              extra_section_html += f"""
+                <section class="service-card" data-extra-service-url="{html.escape(service["url"], quote=True)}" data-extra-service-name="{html.escape(service["name"], quote=True)}">
+                  <h2>{html.escape(service["name"])}</h2>
                   <dl>
                     <dt>状态</dt>
-                    <dd id="extra-status">加载中</dd>
+                    <dd id="extra-{index}-status">加载中</dd>
                     <dt>版本</dt>
-                    <dd id="extra-version">-</dd>
+                    <dd id="extra-{index}-version">-</dd>
                     <dt>提交SHA</dt>
-                    <dd id="extra-sha">-</dd>
+                    <dd id="extra-{index}-sha">-</dd>
                     <dt>CI 触发时间</dt>
-                    <dd id="extra-deploy-triggered-at">-</dd>
+                    <dd id="extra-{index}-deploy-triggered-at">-</dd>
                     <dt>构建时间</dt>
-                    <dd id="extra-built-at">-</dd>
-                    <dt id="extra-effective-at-label" hidden>实际生效时间</dt>
-                    <dd id="extra-effective-at" hidden>-</dd>
+                    <dd id="extra-{index}-built-at">-</dd>
+                    <dt id="extra-{index}-effective-at-label" hidden>实际生效时间</dt>
+                    <dd id="extra-{index}-effective-at" hidden>-</dd>
                     <dt>拉取请求</dt>
-                    <dd id="extra-pr">-</dd>
+                    <dd id="extra-{index}-pr">-</dd>
                   </dl>
                 </section>
               """
@@ -318,6 +335,7 @@ jobs:
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <base target="_blank" />
               <title>{html.escape(page_title)}</title>
               <style>
                 body {{
@@ -437,8 +455,7 @@ jobs:
                 (() => {{
                   let primaryPayload = {json.dumps(primary_payload, ensure_ascii=False)};
                   const primaryServiceName = {json.dumps(primary_service_name, ensure_ascii=False)};
-                  const extraServiceUrl = {json.dumps(extra_service_url, ensure_ascii=False)};
-                  const extraServiceName = {json.dumps(extra_service_name, ensure_ascii=False)};
+                  const extraServices = {json.dumps(extra_services, ensure_ascii=False)};
                   const emptyExtraPayload = (status) => ({{
                     "状态": status,
                     "版本": "-",
@@ -449,12 +466,19 @@ jobs:
                     "拉取请求": "-",
                     "拉取请求链接": "-"
                   }});
-                  let payloadObject = extraServiceUrl
-                    ? {{[primaryServiceName]: primaryPayload, [extraServiceName]: emptyExtraPayload("加载中")}}
+                  let payloadObject = extraServices.length
+                    ? {{[primaryServiceName]: primaryPayload, ...Object.fromEntries(extraServices.map((service) => [service.name, emptyExtraPayload("加载中")]))}}
                     : primaryPayload;
                   let payload = JSON.stringify(payloadObject, null, 2);
                   const button = document.getElementById("copy-json");
                   const jsonNode = document.getElementById("version-json");
+                  document.addEventListener("click", (event) => {{
+                    if (event.defaultPrevented) return;
+                    const anchor = event.target?.closest?.("a[href]");
+                    if (!anchor) return;
+                    event.preventDefault();
+                    window.open(anchor.href, "_blank", "noopener,noreferrer");
+                  }});
                   const setLabel = (text) => {{
                     if (!button) return;
                     button.textContent = text;
@@ -516,6 +540,10 @@ jobs:
                     anchor.target = "_blank";
                     anchor.rel = "noopener noreferrer";
                     anchor.textContent = label || url;
+                    anchor.addEventListener("click", (event) => {{
+                      event.preventDefault();
+                      window.open(url, "_blank", "noopener,noreferrer");
+                    }});
                     node.appendChild(anchor);
                   }};
                   const refreshJson = () => {{
@@ -587,7 +615,7 @@ jobs:
                         prLabel: primaryPayload["拉取请求"],
                         prUrl: primaryPayload["拉取请求链接"]
                       }});
-                      payloadObject = extraServiceUrl
+                      payloadObject = extraServices.length
                         ? {{...payloadObject, [primaryServiceName]: primaryPayload}}
                         : primaryPayload;
                       refreshJson();
@@ -596,8 +624,9 @@ jobs:
                     }}
                   }};
                   refreshPrimaryEffectiveAt();
-                  if (extraServiceUrl) {{
-                    fetch(extraServiceUrl, {{ credentials: "same-origin" }})
+                  const loadExtraService = (service, index) => {{
+                    const id = (suffix) => "extra-" + index + "-" + suffix;
+                    fetch(service.url, {{ credentials: "same-origin" }})
                       .then(async (response) => {{
                         if (!response.ok) throw new Error("HTTP " + response.status);
                         const effectiveAt = formatPageTime(response.headers.get("Date"));
@@ -615,16 +644,17 @@ jobs:
                         const prLabel = pick(data, "拉取请求", "pullRequest", "pull_request");
                         const prUrl = pick(data, "拉取请求链接", "pullRequestUrl", "pull_request_url");
                         const commitUrl = pick(data, "提交SHA链接", "提交链接", "commitShaUrl", "commitUrl", "commit_url");
-                        setText("extra-status", status);
-                        setText("extra-version", version);
-                        setLink("extra-sha", sha, commitUrl);
-                        setText("extra-built-at", builtAt);
-                        setText("extra-deploy-triggered-at", deployTriggeredAt);
-                        setOptionalText("extra-effective-at", effectiveAt);
-                        setLink("extra-pr", prLabel, prUrl);
+                        setText(id("status"), status);
+                        setText(id("version"), version);
+                        setLink(id("sha"), sha, commitUrl);
+                        setText(id("built-at"), builtAt);
+                        setText(id("deploy-triggered-at"), deployTriggeredAt);
+                        setOptionalText(id("effective-at"), effectiveAt);
+                        setLink(id("pr"), prLabel, prUrl);
                         payloadObject = {{
+                          ...payloadObject,
                           [primaryServiceName]: primaryPayload,
-                          [extraServiceName]: buildServicePayload({{
+                          [service.name]: buildServicePayload({{
                             status,
                             version,
                             sha,
@@ -640,12 +670,13 @@ jobs:
                       }})
                       .catch((error) => {{
                         const message = "加载失败：" + error.message;
-                        setText("extra-status", message);
-                        setOptionalText("extra-effective-at", "");
-                        payloadObject = {{[primaryServiceName]: primaryPayload, [extraServiceName]: emptyExtraPayload(message)}};
+                        setText(id("status"), message);
+                        setOptionalText(id("effective-at"), "");
+                        payloadObject = {{...payloadObject, [primaryServiceName]: primaryPayload, [service.name]: emptyExtraPayload(message)}};
                         refreshJson();
                       }});
-                  }}
+                  }};
+                  extraServices.forEach(loadExtraService);
                 }})();
               </script>
             </body>
