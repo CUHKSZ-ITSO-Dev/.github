@@ -12,10 +12,6 @@ on:
       dockerfile:
         required: true
         type: string
-      checkout-ref:
-        required: false
-        type: string
-        default: ""
       version-tag:
         required: false
         type: string
@@ -60,14 +56,6 @@ on:
         required: false
         type: boolean
         default: true
-      lfs-pull:
-        required: false
-        type: boolean
-        default: false
-      lfs-include:
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -80,19 +68,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.checkout-ref || github.ref }}
-
-      - name: 拉取 Git LFS 资源
-        if: inputs.lfs-pull
-        env:
-          LFS_INCLUDE: ${{ inputs.lfs-include }}
-        run: |
-          set -euo pipefail
-          git lfs pull
-          if [ -n "$LFS_INCLUDE" ]; then
-            git lfs pull --include="$LFS_INCLUDE"
-          fi
 
       - name: 准备镜像元数据
         id: plan
