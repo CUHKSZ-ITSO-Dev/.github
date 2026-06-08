@@ -66,6 +66,30 @@ on:
         required: false
         type: boolean
         default: true
+      version-page-enabled:
+        required: false
+        type: boolean
+        default: false
+      version-page-version:
+        required: false
+        type: string
+        default: ""
+      version-page-sha:
+        required: false
+        type: string
+        default: ""
+      version-page-source-url:
+        required: false
+        type: string
+        default: ""
+      version-page-source-label:
+        required: false
+        type: string
+        default: ""
+      version-page-timezone:
+        required: false
+        type: string
+        default: Asia/Shanghai
     outputs:
       asset:
         description: "发布制品文件名"
@@ -137,6 +161,249 @@ jobs:
       - name: 构建前端
         working-directory: ${{ inputs.working-directory }}
         run: ${{ inputs.build-command }}
+
+      - name: 生成版本页面
+        if: inputs.version-page-enabled
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          DIST_DIR: ${{ inputs.dist-dir }}
+          VERSION_PAGE_VERSION: ${{ inputs.version-page-version || inputs.release-tag }}
+          VERSION_PAGE_SHA: ${{ inputs.version-page-sha || github.sha }}
+          VERSION_PAGE_SOURCE_URL: ${{ inputs.version-page-source-url }}
+          VERSION_PAGE_SOURCE_LABEL: ${{ inputs.version-page-source-label }}
+          VERSION_PAGE_TIMEZONE: ${{ inputs.version-page-timezone }}
+        run: |
+          set -euo pipefail
+
+          dist_path="${WORKING_DIRECTORY%/}/${DIST_DIR}"
+          if [ ! -d "$dist_path" ]; then
+            echo "::error::前端构建目录不存在：${dist_path}"
+            exit 1
+          fi
+
+          export DIST_PATH="$dist_path"
+
+          python3 <<'PY'
+          import html
+          import json
+          import os
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          dist_path = Path(os.environ["DIST_PATH"])
+          version = os.environ["VERSION_PAGE_VERSION"]
+          sha = os.environ["VERSION_PAGE_SHA"]
+          built_at = datetime.now(ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])).strftime("%Y-%m-%d %H:%M:%S")
+          source_url = os.environ["VERSION_PAGE_SOURCE_URL"]
+          source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
+          commit_url = ""
+          if sha and os.environ.get("GITHUB_SERVER_URL") and os.environ.get("GITHUB_REPOSITORY"):
+              commit_url = f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{sha}'
+
+          link_html = (
+              f'<a href="{html.escape(source_url, quote=True)}" rel="noreferrer">{html.escape(source_label)}</a>'
+              if source_url
+              else html.escape(source_label)
+          )
+          commit_html = (
+              f'<a href="{html.escape(commit_url, quote=True)}" rel="noreferrer">{html.escape(sha)}</a>'
+              if commit_url
+              else html.escape(sha or "-")
+          )
+          version_payload = json.dumps(
+              {
+                  "版本": version,
+                  "提交SHA": sha,
+                  "构建时间": built_at,
+                  "拉取请求": source_label,
+              },
+              ensure_ascii=False,
+              indent=2,
+          )
+
+          version_html = f"""<!doctype html>
+          <html lang="zh-CN">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>开发服版本</title>
+              <style>
+                body {{
+                  margin: 0;
+                  min-height: 100vh;
+                  display: grid;
+                  place-items: center;
+                  background: #f6f8fb;
+                  color: #172033;
+                  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                }}
+                main {{
+                  width: min(720px, calc(100vw - 32px));
+                  padding: 28px;
+                  border: 1px solid #d8dee9;
+                  border-radius: 8px;
+                  background: #ffffff;
+                  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+                }}
+                h1 {{
+                  margin: 0 0 20px;
+                  font-size: 22px;
+                }}
+                dl {{
+                  display: grid;
+                  grid-template-columns: 120px 1fr;
+                  gap: 12px 16px;
+                  margin: 0 0 22px;
+                }}
+                dt {{
+                  color: #64748b;
+                  font-weight: 600;
+                }}
+                dd {{
+                  margin: 0;
+                  word-break: break-all;
+                }}
+                a {{
+                  color: #155eef;
+                }}
+                pre {{
+                  margin: 0;
+                  padding: 16px;
+                  overflow: auto;
+                  border-radius: 6px;
+                  background: #0f172a;
+                  color: #e2e8f0;
+                  font-size: 13px;
+                  line-height: 1.6;
+                }}
+                .json-header {{
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 12px;
+                  margin: 0 0 8px;
+                  color: #64748b;
+                  font-size: 13px;
+                  font-weight: 600;
+                }}
+                button {{
+                  border: 1px solid #cbd5e1;
+                  border-radius: 6px;
+                  background: #ffffff;
+                  color: #172033;
+                  cursor: pointer;
+                  font: inherit;
+                  padding: 6px 10px;
+                }}
+                button:hover {{
+                  background: #f8fafc;
+                }}
+              </style>
+            </head>
+            <body>
+              <main>
+                <h1>开发服版本</h1>
+                <dl>
+                  <dt>版本</dt>
+                  <dd>{html.escape(version)}</dd>
+                  <dt>提交SHA</dt>
+                  <dd>{commit_html}</dd>
+                  <dt>构建时间</dt>
+                  <dd>{html.escape(built_at)}</dd>
+                  <dt>拉取请求</dt>
+                  <dd>{link_html}</dd>
+                </dl>
+                <div class="json-header">
+                  <span>JSON</span>
+                  <button type="button" id="copy-json">复制 JSON</button>
+                </div>
+                <pre id="version-json">{html.escape(version_payload)}</pre>
+              </main>
+              <script>
+                (() => {{
+                  const payload = {json.dumps(version_payload, ensure_ascii=False)};
+                  const button = document.getElementById("copy-json");
+                  const setLabel = (text) => {{
+                    if (!button) return;
+                    button.textContent = text;
+                    window.setTimeout(() => {{
+                      button.textContent = "复制 JSON";
+                    }}, 1600);
+                  }};
+                  const fallbackCopy = () => {{
+                    const textarea = document.createElement("textarea");
+                    textarea.value = payload;
+                    textarea.setAttribute("readonly", "");
+                    textarea.style.position = "fixed";
+                    textarea.style.opacity = "0";
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    const copied = document.execCommand("copy");
+                    document.body.removeChild(textarea);
+                    return copied;
+                  }};
+                  button?.addEventListener("click", async () => {{
+                    try {{
+                      if (navigator.clipboard?.writeText) {{
+                        await navigator.clipboard.writeText(payload);
+                      }} else if (!fallbackCopy()) {{
+                        throw new Error("copy failed");
+                      }}
+                      setLabel("已复制");
+                    }} catch {{
+                      setLabel(fallbackCopy() ? "已复制" : "复制失败");
+                    }}
+                  }});
+                }})();
+              </script>
+            </body>
+          </html>
+          """
+
+          output = dist_path / "version" / "index.html"
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(version_html, encoding="utf-8")
+
+          index_file = dist_path / "index.html"
+          if index_file.exists():
+              version_html_literal = json.dumps(version_html, ensure_ascii=False).replace("</", "<\\/")
+              fallback_script = f"""<script>
+          (() => {{
+            const path = window.location.pathname.replace(/\\/+$/, "");
+            if (!/(^|\\/)version$/.test(path)) return;
+            const html = {version_html_literal};
+            const render = () => {{
+              let frame = document.getElementById("__dev_version_page__");
+              if (!frame) {{
+                frame = document.createElement("iframe");
+                frame.id = "__dev_version_page__";
+                frame.title = "开发服版本";
+                frame.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:2147483647;background:#f6f8fb;";
+                document.documentElement.appendChild(frame);
+              }}
+              frame.srcdoc = html;
+              document.title = "开发服版本";
+            }};
+            if (document.readyState === "loading") {{
+              document.addEventListener("DOMContentLoaded", render, {{ once: true }});
+            }}
+            window.addEventListener("load", render, {{ once: true }});
+            render();
+            setTimeout(render, 50);
+            setTimeout(render, 250);
+            setTimeout(render, 1000);
+          }})();
+          </script>
+          """
+              content = index_file.read_text(encoding="utf-8")
+              marker = "</head>"
+              if marker in content:
+                  content = content.replace(marker, f"{fallback_script}{marker}", 1)
+              else:
+                  content = f"{fallback_script}{content}"
+              index_file.write_text(content, encoding="utf-8")
+          PY
 
       - name: 打包发布制品
         id: package
