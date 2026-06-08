@@ -90,6 +90,18 @@ on:
         required: false
         type: string
         default: Asia/Shanghai
+      version-page-deploy-triggered-at:
+        required: false
+        type: string
+        default: ""
+      version-page-extra-service-name:
+        required: false
+        type: string
+        default: ""
+      version-page-extra-service-url:
+        required: false
+        type: string
+        default: ""
     outputs:
       asset:
         description: "发布制品文件名"
@@ -172,6 +184,9 @@ jobs:
           VERSION_PAGE_SOURCE_URL: ${{ inputs.version-page-source-url }}
           VERSION_PAGE_SOURCE_LABEL: ${{ inputs.version-page-source-label }}
           VERSION_PAGE_TIMEZONE: ${{ inputs.version-page-timezone }}
+          VERSION_PAGE_DEPLOY_TRIGGERED_AT: ${{ inputs.version-page-deploy-triggered-at }}
+          VERSION_PAGE_EXTRA_SERVICE_NAME: ${{ inputs.version-page-extra-service-name }}
+          VERSION_PAGE_EXTRA_SERVICE_URL: ${{ inputs.version-page-extra-service-url }}
         run: |
           set -euo pipefail
 
@@ -194,40 +209,134 @@ jobs:
           dist_path = Path(os.environ["DIST_PATH"])
           version = os.environ["VERSION_PAGE_VERSION"]
           sha = os.environ["VERSION_PAGE_SHA"]
-          built_at = datetime.now(ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])).strftime("%Y-%m-%d %H:%M:%S")
+          page_timezone = ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])
+
+          def format_time(value):
+              value = value.strip()
+              if not value:
+                  return ""
+              try:
+                  parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                  return parsed.astimezone(page_timezone).strftime("%Y-%m-%d %H:%M:%S")
+              except ValueError:
+                  return value
+
+          built_at = datetime.now(page_timezone).strftime("%Y-%m-%d %H:%M:%S")
+          deploy_triggered_at = format_time(os.environ["VERSION_PAGE_DEPLOY_TRIGGERED_AT"]) or built_at
           source_url = os.environ["VERSION_PAGE_SOURCE_URL"]
           source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
+          repository_name = os.environ.get("GITHUB_REPOSITORY", "").rsplit("/", 1)[-1] or "当前仓库"
+          primary_service_name = repository_name
+          raw_extra_service_names = [
+              item.strip()
+              for item in os.environ["VERSION_PAGE_EXTRA_SERVICE_NAME"].replace(",", "\n").splitlines()
+              if item.strip()
+          ]
+          extra_service_urls = [
+              item.strip()
+              for item in os.environ["VERSION_PAGE_EXTRA_SERVICE_URL"].replace(",", "\n").splitlines()
+              if item.strip()
+          ]
+
+          def infer_extra_service_name(raw_name, service_url):
+              normalized_url = service_url.lower()
+              if "openplatform" in normalized_url or "open_platform" in normalized_url or "open-platform" in normalized_url:
+                  return "Open Platform"
+              if "chat" in normalized_url:
+                  return "Chat"
+              if "uniauth" in normalized_url:
+                  return "UniAuth"
+              if raw_name:
+                  for suffix in (" 后端", " 前端", " 服务", " Backend", " Frontend", " Service"):
+                      if raw_name.endswith(suffix):
+                          raw_name = raw_name[: -len(suffix)]
+                  return raw_name.strip() or "关联服务"
+              return "关联服务"
+
+          extra_services = []
+          used_extra_service_names = set()
+          for index, extra_service_url in enumerate(extra_service_urls):
+              raw_name = raw_extra_service_names[index] if index < len(raw_extra_service_names) else ""
+              service_name = infer_extra_service_name(raw_name, extra_service_url)
+              if service_name in used_extra_service_names:
+                  service_name = f"{service_name} {index + 1}"
+              used_extra_service_names.add(service_name)
+              extra_services.append({"name": service_name, "url": extra_service_url})
           commit_url = ""
           if sha and os.environ.get("GITHUB_SERVER_URL") and os.environ.get("GITHUB_REPOSITORY"):
               commit_url = f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{sha}'
 
           link_html = (
-              f'<a href="{html.escape(source_url, quote=True)}" rel="noreferrer">{html.escape(source_label)}</a>'
+              f'<a href="{html.escape(source_url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(source_label)}</a>'
               if source_url
               else html.escape(source_label)
           )
           commit_html = (
-              f'<a href="{html.escape(commit_url, quote=True)}" rel="noreferrer">{html.escape(sha)}</a>'
+              f'<a href="{html.escape(commit_url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(sha)}</a>'
               if commit_url
               else html.escape(sha or "-")
           )
+          primary_payload = {
+              "状态": "已加载",
+              "版本": version,
+              "提交SHA": sha,
+              "提交SHA链接": commit_url,
+              "CI 触发时间": deploy_triggered_at,
+              "构建时间": built_at,
+              "拉取请求": source_label,
+              "拉取请求链接": source_url,
+          }
+          version_payload_data = primary_payload
+          if extra_services:
+              version_payload_data = {primary_service_name: primary_payload}
+              for service in extra_services:
+                  version_payload_data[service["name"]] = {
+                      "状态": "加载中",
+                      "版本": "-",
+                      "提交SHA": "-",
+                      "提交SHA链接": "-",
+                      "CI 触发时间": "-",
+                      "构建时间": "-",
+                      "拉取请求": "-",
+                      "拉取请求链接": "-",
+                  }
           version_payload = json.dumps(
-              {
-                  "版本": version,
-                  "提交SHA": sha,
-                  "构建时间": built_at,
-                  "拉取请求": source_label,
-              },
+              version_payload_data,
               ensure_ascii=False,
               indent=2,
           )
+          page_title = "开发服"
+          extra_section_html = ""
+          for index, service in enumerate(extra_services):
+              extra_section_html += f"""
+                <section class="service-card" data-extra-service-url="{html.escape(service["url"], quote=True)}" data-extra-service-name="{html.escape(service["name"], quote=True)}">
+                  <h2>{html.escape(service["name"])}</h2>
+                  <dl>
+                    <dt>状态</dt>
+                    <dd id="extra-{index}-status">加载中</dd>
+                    <dt>版本</dt>
+                    <dd id="extra-{index}-version">-</dd>
+                    <dt>提交SHA</dt>
+                    <dd id="extra-{index}-sha">-</dd>
+                    <dt>CI 触发时间</dt>
+                    <dd id="extra-{index}-deploy-triggered-at">-</dd>
+                    <dt>构建时间</dt>
+                    <dd id="extra-{index}-built-at">-</dd>
+                    <dt id="extra-{index}-effective-at-label" hidden>实际生效时间</dt>
+                    <dd id="extra-{index}-effective-at" hidden>-</dd>
+                    <dt>拉取请求</dt>
+                    <dd id="extra-{index}-pr">-</dd>
+                  </dl>
+                </section>
+              """
 
           version_html = f"""<!doctype html>
           <html lang="zh-CN">
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
-              <title>开发服版本</title>
+              <base target="_blank" />
+              <title>{html.escape(page_title)}</title>
               <style>
                 body {{
                   margin: 0;
@@ -249,6 +358,18 @@ jobs:
                 h1 {{
                   margin: 0 0 20px;
                   font-size: 22px;
+                }}
+                h2 {{
+                  margin: 0 0 14px;
+                  font-size: 16px;
+                }}
+                .service-card {{
+                  padding: 0 0 18px;
+                  margin: 0 0 18px;
+                  border-bottom: 1px solid #e2e8f0;
+                }}
+                .service-card:last-of-type {{
+                  border-bottom: 0;
                 }}
                 dl {{
                   display: grid;
@@ -303,17 +424,27 @@ jobs:
             </head>
             <body>
               <main>
-                <h1>开发服版本</h1>
-                <dl>
-                  <dt>版本</dt>
-                  <dd>{html.escape(version)}</dd>
-                  <dt>提交SHA</dt>
-                  <dd>{commit_html}</dd>
-                  <dt>构建时间</dt>
-                  <dd>{html.escape(built_at)}</dd>
-                  <dt>拉取请求</dt>
-                  <dd>{link_html}</dd>
-                </dl>
+                <h1>{html.escape(page_title)}</h1>
+                <section class="service-card">
+                  <h2>{html.escape(primary_service_name)}</h2>
+                  <dl>
+                    <dt>状态</dt>
+                    <dd>已加载</dd>
+                    <dt>版本</dt>
+                    <dd>{html.escape(version)}</dd>
+                    <dt>提交SHA</dt>
+                    <dd>{commit_html}</dd>
+                    <dt>CI 触发时间</dt>
+                    <dd>{html.escape(deploy_triggered_at)}</dd>
+                    <dt>构建时间</dt>
+                    <dd>{html.escape(built_at)}</dd>
+                    <dt id="primary-effective-at-label" hidden>实际生效时间</dt>
+                    <dd id="primary-effective-at" hidden>-</dd>
+                    <dt>拉取请求</dt>
+                    <dd>{link_html}</dd>
+                  </dl>
+                </section>
+                {extra_section_html}
                 <div class="json-header">
                   <span>JSON</span>
                   <button type="button" id="copy-json">复制 JSON</button>
@@ -322,8 +453,32 @@ jobs:
               </main>
               <script>
                 (() => {{
-                  const payload = {json.dumps(version_payload, ensure_ascii=False)};
+                  let primaryPayload = {json.dumps(primary_payload, ensure_ascii=False)};
+                  const primaryServiceName = {json.dumps(primary_service_name, ensure_ascii=False)};
+                  const extraServices = {json.dumps(extra_services, ensure_ascii=False)};
+                  const emptyExtraPayload = (status) => ({{
+                    "状态": status,
+                    "版本": "-",
+                    "提交SHA": "-",
+                    "提交SHA链接": "-",
+                    "CI 触发时间": "-",
+                    "构建时间": "-",
+                    "拉取请求": "-",
+                    "拉取请求链接": "-"
+                  }});
+                  let payloadObject = extraServices.length
+                    ? {{[primaryServiceName]: primaryPayload, ...Object.fromEntries(extraServices.map((service) => [service.name, emptyExtraPayload("加载中")]))}}
+                    : primaryPayload;
+                  let payload = JSON.stringify(payloadObject, null, 2);
                   const button = document.getElementById("copy-json");
+                  const jsonNode = document.getElementById("version-json");
+                  document.addEventListener("click", (event) => {{
+                    if (event.defaultPrevented) return;
+                    const anchor = event.target?.closest?.("a[href]");
+                    if (!anchor) return;
+                    event.preventDefault();
+                    window.open(anchor.href, "_blank", "noopener,noreferrer");
+                  }});
                   const setLabel = (text) => {{
                     if (!button) return;
                     button.textContent = text;
@@ -355,6 +510,173 @@ jobs:
                       setLabel(fallbackCopy() ? "已复制" : "复制失败");
                     }}
                   }});
+                  const setText = (id, value) => {{
+                    const node = document.getElementById(id);
+                    if (node) node.textContent = value || "-";
+                  }};
+                  const setOptionalText = (id, value) => {{
+                    const node = document.getElementById(id);
+                    const label = document.getElementById(id + "-label");
+                    if (!node) return;
+                    if (!value) {{
+                      node.hidden = true;
+                      if (label) label.hidden = true;
+                      return;
+                    }}
+                    node.textContent = value;
+                    node.hidden = false;
+                    if (label) label.hidden = false;
+                  }};
+                  const setLink = (id, label, url) => {{
+                    const node = document.getElementById(id);
+                    if (!node) return;
+                    node.textContent = "";
+                    if (!url) {{
+                      node.textContent = label || "-";
+                      return;
+                    }}
+                    const anchor = document.createElement("a");
+                    anchor.href = url;
+                    anchor.target = "_blank";
+                    anchor.rel = "noopener noreferrer";
+                    anchor.textContent = label || url;
+                    anchor.addEventListener("click", (event) => {{
+                      event.preventDefault();
+                      window.open(url, "_blank", "noopener,noreferrer");
+                    }});
+                    node.appendChild(anchor);
+                  }};
+                  const refreshJson = () => {{
+                    payload = JSON.stringify(payloadObject, null, 2);
+                    if (jsonNode) jsonNode.textContent = payload;
+                  }};
+                  const pick = (data, ...keys) => {{
+                    for (const key of keys) {{
+                      if (data && data[key]) return data[key];
+                    }}
+                    return "";
+                  }};
+                  const formatPageTime = (value) => {{
+                    if (!value) return "";
+                    const date = new Date(value);
+                    if (Number.isNaN(date.getTime())) return value;
+                    const parts = new Intl.DateTimeFormat("zh-CN", {{
+                      timeZone: "Asia/Shanghai",
+                      year: "numeric",
+                      month: "2-digit",
+                      day: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                      hour12: false
+                    }}).formatToParts(date).reduce((acc, part) => {{
+                      if (part.type !== "literal") acc[part.type] = part.value;
+                      return acc;
+                    }}, {{}});
+                    return parts.year + "-" + parts.month + "-" + parts.day + " " + parts.hour + ":" + parts.minute + ":" + parts.second;
+                  }};
+                  const getPageEffectiveAt = () => {{
+                    const fallback = formatPageTime(new Date());
+                    const versionKey = primaryPayload["版本"] || "unknown";
+                    const storageKey = "__dev_version_effective_at__:" + versionKey;
+                    try {{
+                      const existing = window.localStorage.getItem(storageKey);
+                      if (existing) return existing;
+                      window.localStorage.setItem(storageKey, fallback);
+                    }} catch {{}}
+                    return fallback;
+                  }};
+                  const buildServicePayload = (values) => {{
+                    const result = {{}};
+                    result["状态"] = values.status || "已加载";
+                    result["版本"] = values.version || "-";
+                    result["提交SHA"] = values.sha || "-";
+                    result["提交SHA链接"] = values.commitUrl || "-";
+                    result["CI 触发时间"] = values.deployTriggeredAt || "-";
+                    result["构建时间"] = values.builtAt || "-";
+                    if (values.effectiveAt) result["实际生效时间"] = values.effectiveAt;
+                    result["拉取请求"] = values.prLabel || "-";
+                    result["拉取请求链接"] = values.prUrl || "-";
+                    return result;
+                  }};
+                  const refreshPrimaryEffectiveAt = async () => {{
+                    try {{
+                      const effectiveAt = getPageEffectiveAt();
+                      if (!effectiveAt) return;
+                      setOptionalText("primary-effective-at", effectiveAt);
+                      primaryPayload = buildServicePayload({{
+                        status: primaryPayload["状态"],
+                        version: primaryPayload["版本"],
+                        sha: primaryPayload["提交SHA"],
+                        commitUrl: primaryPayload["提交SHA链接"],
+                        builtAt: primaryPayload["构建时间"],
+                        deployTriggeredAt: primaryPayload["CI 触发时间"],
+                        effectiveAt,
+                        prLabel: primaryPayload["拉取请求"],
+                        prUrl: primaryPayload["拉取请求链接"]
+                      }});
+                      payloadObject = extraServices.length
+                        ? {{...payloadObject, [primaryServiceName]: primaryPayload}}
+                        : primaryPayload;
+                      refreshJson();
+                    }} catch {{
+                      setOptionalText("primary-effective-at", "");
+                    }}
+                  }};
+                  refreshPrimaryEffectiveAt();
+                  const loadExtraService = (service, index) => {{
+                    const id = (suffix) => "extra-" + index + "-" + suffix;
+                    fetch(service.url, {{ credentials: "same-origin" }})
+                      .then(async (response) => {{
+                        if (!response.ok) throw new Error("HTTP " + response.status);
+                        const effectiveAt = formatPageTime(response.headers.get("Date"));
+                        const data = await response.json();
+                        return {{ data, effectiveAt }};
+                      }})
+                      .then((result) => {{
+                        const data = result.data || {{}};
+                        const status = pick(data, "状态", "status") || "已加载";
+                        const version = pick(data, "版本", "version");
+                        const sha = pick(data, "提交SHA", "sha", "commitSha");
+                        const builtAt = pick(data, "构建时间", "builtAt", "built_at");
+                        const deployTriggeredAt = pick(data, "CI 触发时间", "部署触发时间", "deployTriggeredAt", "deploy_triggered_at");
+                        const effectiveAt = pick(data, "实际生效时间", "effectiveAt", "effective_at") || result.effectiveAt;
+                        const prLabel = pick(data, "拉取请求", "pullRequest", "pull_request");
+                        const prUrl = pick(data, "拉取请求链接", "pullRequestUrl", "pull_request_url");
+                        const commitUrl = pick(data, "提交SHA链接", "提交链接", "commitShaUrl", "commitUrl", "commit_url");
+                        setText(id("status"), status);
+                        setText(id("version"), version);
+                        setLink(id("sha"), sha, commitUrl);
+                        setText(id("built-at"), builtAt);
+                        setText(id("deploy-triggered-at"), deployTriggeredAt);
+                        setOptionalText(id("effective-at"), effectiveAt);
+                        setLink(id("pr"), prLabel, prUrl);
+                        payloadObject = {{
+                          ...payloadObject,
+                          [primaryServiceName]: primaryPayload,
+                          [service.name]: buildServicePayload({{
+                            status,
+                            version,
+                            sha,
+                            commitUrl,
+                            builtAt,
+                            deployTriggeredAt,
+                            effectiveAt,
+                            prLabel,
+                            prUrl
+                          }})
+                        }};
+                        refreshJson();
+                      }})
+                      .catch((error) => {{
+                        const message = "加载失败：" + error.message;
+                        setText(id("status"), message);
+                        setOptionalText(id("effective-at"), "");
+                        payloadObject = {{...payloadObject, [primaryServiceName]: primaryPayload, [service.name]: emptyExtraPayload(message)}};
+                        refreshJson();
+                      }});
+                  }};
+                  extraServices.forEach(loadExtraService);
                 }})();
               </script>
             </body>
@@ -378,12 +700,12 @@ jobs:
               if (!frame) {{
                 frame = document.createElement("iframe");
                 frame.id = "__dev_version_page__";
-                frame.title = "开发服版本";
+                frame.title = "开发服";
                 frame.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:2147483647;background:#f6f8fb;";
                 document.documentElement.appendChild(frame);
               }}
               frame.srcdoc = html;
-              document.title = "开发服版本";
+              document.title = "开发服";
             }};
             if (document.readyState === "loading") {{
               document.addEventListener("DOMContentLoaded", render, {{ once: true }});

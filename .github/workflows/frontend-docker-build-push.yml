@@ -83,6 +83,10 @@ on:
         required: false
         type: string
         default: Asia/Shanghai
+      version-page-deploy-triggered-at:
+        required: false
+        type: string
+        default: ""
       dist-dir:
         required: false
         type: string
@@ -143,6 +147,7 @@ jobs:
           VERSION_PAGE_SOURCE_URL: ${{ inputs.version-page-source-url }}
           VERSION_PAGE_SOURCE_LABEL: ${{ inputs.version-page-source-label }}
           VERSION_PAGE_TIMEZONE: ${{ inputs.version-page-timezone }}
+          VERSION_PAGE_DEPLOY_TRIGGERED_AT: ${{ inputs.version-page-deploy-triggered-at }}
         run: |
           set -euo pipefail
 
@@ -165,40 +170,56 @@ jobs:
           dist_path = Path(os.environ["DIST_PATH"])
           version = os.environ["VERSION_PAGE_VERSION"]
           sha = os.environ["VERSION_PAGE_SHA"]
-          built_at = datetime.now(ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])).strftime("%Y-%m-%d %H:%M:%S")
+          page_timezone = ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])
+
+          def format_time(value):
+              value = value.strip()
+              if not value:
+                  return ""
+              try:
+                  parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                  return parsed.astimezone(page_timezone).strftime("%Y-%m-%d %H:%M:%S")
+              except ValueError:
+                  return value
+
+          built_at = datetime.now(page_timezone).strftime("%Y-%m-%d %H:%M:%S")
+          deploy_triggered_at = format_time(os.environ["VERSION_PAGE_DEPLOY_TRIGGERED_AT"]) or built_at
           source_url = os.environ["VERSION_PAGE_SOURCE_URL"]
           source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
+          repository_name = os.environ.get("GITHUB_REPOSITORY", "").rsplit("/", 1)[-1] or "当前仓库"
           commit_url = ""
           if sha and os.environ.get("GITHUB_SERVER_URL") and os.environ.get("GITHUB_REPOSITORY"):
               commit_url = f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{sha}'
 
           link_html = (
-              f'<a href="{html.escape(source_url, quote=True)}" rel="noreferrer">{html.escape(source_label)}</a>'
+              f'<a href="{html.escape(source_url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(source_label)}</a>'
               if source_url
               else html.escape(source_label)
           )
           commit_html = (
-              f'<a href="{html.escape(commit_url, quote=True)}" rel="noreferrer">{html.escape(sha)}</a>'
+              f'<a href="{html.escape(commit_url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(sha)}</a>'
               if commit_url
               else html.escape(sha or "-")
           )
-          version_payload = json.dumps(
-              {
-                  "版本": version,
-                  "提交SHA": sha,
-                  "构建时间": built_at,
-                  "拉取请求": source_label,
-              },
-              ensure_ascii=False,
-              indent=2,
-          )
+          version_payload_data = {
+              "状态": "已加载",
+              "版本": version,
+              "提交SHA": sha,
+              "提交SHA链接": commit_url,
+              "CI 触发时间": deploy_triggered_at,
+              "构建时间": built_at,
+              "拉取请求": source_label,
+              "拉取请求链接": source_url,
+          }
+          version_payload = json.dumps(version_payload_data, ensure_ascii=False, indent=2)
 
           version_html = f"""<!doctype html>
           <html lang="zh-CN">
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
-              <title>开发服版本</title>
+              <base target="_blank" />
+              <title>开发服</title>
               <style>
                 body {{
                   margin: 0;
@@ -220,6 +241,10 @@ jobs:
                 h1 {{
                   margin: 0 0 20px;
                   font-size: 22px;
+                }}
+                h2 {{
+                  margin: 0 0 14px;
+                  font-size: 16px;
                 }}
                 dl {{
                   display: grid;
@@ -274,14 +299,21 @@ jobs:
             </head>
             <body>
               <main>
-                <h1>开发服版本</h1>
+                <h1>开发服</h1>
+                <h2>{html.escape(repository_name)}</h2>
                 <dl>
+                  <dt>状态</dt>
+                  <dd>已加载</dd>
                   <dt>版本</dt>
                   <dd>{html.escape(version)}</dd>
                   <dt>提交SHA</dt>
                   <dd>{commit_html}</dd>
+                  <dt>CI 触发时间</dt>
+                  <dd>{html.escape(deploy_triggered_at)}</dd>
                   <dt>构建时间</dt>
                   <dd>{html.escape(built_at)}</dd>
+                  <dt id="effective-at-label" hidden>实际生效时间</dt>
+                  <dd id="effective-at" hidden>-</dd>
                   <dt>拉取请求</dt>
                   <dd>{link_html}</dd>
                 </dl>
@@ -293,8 +325,17 @@ jobs:
               </main>
               <script>
                 (() => {{
-                  const payload = {json.dumps(version_payload, ensure_ascii=False)};
+                  let payloadObject = {json.dumps(version_payload_data, ensure_ascii=False)};
+                  let payload = JSON.stringify(payloadObject, null, 2);
                   const button = document.getElementById("copy-json");
+                  const jsonNode = document.getElementById("version-json");
+                  document.addEventListener("click", (event) => {{
+                    if (event.defaultPrevented) return;
+                    const anchor = event.target?.closest?.("a[href]");
+                    if (!anchor) return;
+                    event.preventDefault();
+                    window.open(anchor.href, "_blank", "noopener,noreferrer");
+                  }});
                   const setLabel = (text) => {{
                     if (!button) return;
                     button.textContent = text;
@@ -326,6 +367,61 @@ jobs:
                       setLabel(fallbackCopy() ? "已复制" : "复制失败");
                     }}
                   }});
+                  const setEffectiveAt = (value) => {{
+                    const node = document.getElementById("effective-at");
+                    const label = document.getElementById("effective-at-label");
+                    if (!node || !value) return;
+                    node.textContent = value;
+                    node.hidden = false;
+                    if (label) label.hidden = false;
+                    payloadObject = {{
+                      "状态": payloadObject["状态"],
+                      "版本": payloadObject["版本"],
+                      "提交SHA": payloadObject["提交SHA"],
+                      "提交SHA链接": payloadObject["提交SHA链接"],
+                      "CI 触发时间": payloadObject["CI 触发时间"],
+                      "构建时间": payloadObject["构建时间"],
+                      "实际生效时间": value,
+                      "拉取请求": payloadObject["拉取请求"],
+                      "拉取请求链接": payloadObject["拉取请求链接"]
+                    }};
+                    payload = JSON.stringify(payloadObject, null, 2);
+                    if (jsonNode) jsonNode.textContent = payload;
+                  }};
+                  const formatPageTime = (value) => {{
+                    if (!value) return "";
+                    const date = new Date(value);
+                    if (Number.isNaN(date.getTime())) return value;
+                    const parts = new Intl.DateTimeFormat("zh-CN", {{
+                      timeZone: "Asia/Shanghai",
+                      year: "numeric",
+                      month: "2-digit",
+                      day: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                      hour12: false
+                    }}).formatToParts(date).reduce((acc, part) => {{
+                      if (part.type !== "literal") acc[part.type] = part.value;
+                      return acc;
+                    }}, {{}});
+                    return parts.year + "-" + parts.month + "-" + parts.day + " " + parts.hour + ":" + parts.minute + ":" + parts.second;
+                  }};
+                  const getPageEffectiveAt = () => {{
+                    const fallback = formatPageTime(new Date());
+                    const versionKey = payloadObject["版本"] || "unknown";
+                    const storageKey = "__dev_version_effective_at__:" + versionKey;
+                    try {{
+                      const existing = window.localStorage.getItem(storageKey);
+                      if (existing) return existing;
+                      window.localStorage.setItem(storageKey, fallback);
+                    }} catch {{}}
+                    return fallback;
+                  }};
+                  const refreshEffectiveAt = async () => {{
+                    setEffectiveAt(getPageEffectiveAt());
+                  }};
+                  refreshEffectiveAt();
                 }})();
               </script>
             </body>
@@ -349,12 +445,12 @@ jobs:
               if (!frame) {{
                 frame = document.createElement("iframe");
                 frame.id = "__dev_version_page__";
-                frame.title = "开发服版本";
+                frame.title = "开发服";
                 frame.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:2147483647;background:#f6f8fb;";
                 document.documentElement.appendChild(frame);
               }}
               frame.srcdoc = html;
-              document.title = "开发服版本";
+              document.title = "开发服";
             }};
             if (document.readyState === "loading") {{
               document.addEventListener("DOMContentLoaded", render, {{ once: true }});
