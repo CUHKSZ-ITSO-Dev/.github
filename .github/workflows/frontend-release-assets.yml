@@ -234,12 +234,12 @@ jobs:
               commit_url = f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{sha}'
 
           link_html = (
-              f'<a href="{html.escape(source_url, quote=True)}" rel="noreferrer">{html.escape(source_label)}</a>'
+              f'<a href="{html.escape(source_url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(source_label)}</a>'
               if source_url
               else html.escape(source_label)
           )
           commit_html = (
-              f'<a href="{html.escape(commit_url, quote=True)}" rel="noreferrer">{html.escape(sha)}</a>'
+              f'<a href="{html.escape(commit_url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(sha)}</a>'
               if commit_url
               else html.escape(sha or "-")
           )
@@ -498,7 +498,8 @@ jobs:
                     }}
                     const anchor = document.createElement("a");
                     anchor.href = url;
-                    anchor.rel = "noreferrer";
+                    anchor.target = "_blank";
+                    anchor.rel = "noopener noreferrer";
                     anchor.textContent = label || url;
                     node.appendChild(anchor);
                   }};
@@ -531,6 +532,17 @@ jobs:
                     }}, {{}});
                     return parts.year + "-" + parts.month + "-" + parts.day + " " + parts.hour + ":" + parts.minute + ":" + parts.second;
                   }};
+                  const getPageEffectiveAt = () => {{
+                    const fallback = formatPageTime(new Date());
+                    const versionKey = primaryPayload["版本"] || "unknown";
+                    const storageKey = "__dev_version_effective_at__:" + versionKey;
+                    try {{
+                      const existing = window.localStorage.getItem(storageKey);
+                      if (existing) return existing;
+                      window.localStorage.setItem(storageKey, fallback);
+                    }} catch {{}}
+                    return fallback;
+                  }};
                   const buildServicePayload = (values) => {{
                     const result = {{}};
                     result["状态"] = values.status || "已加载";
@@ -546,15 +558,7 @@ jobs:
                   }};
                   const refreshPrimaryEffectiveAt = async () => {{
                     try {{
-                      const targetUrl = window.location.href === "about:srcdoc" ? document.referrer : window.location.href;
-                      if (!targetUrl) return;
-                      const response = await fetch(targetUrl, {{
-                        method: "HEAD",
-                        credentials: "same-origin",
-                        cache: "no-store"
-                      }});
-                      if (!response.ok) return;
-                      const effectiveAt = formatPageTime(response.headers.get("Date"));
+                      const effectiveAt = getPageEffectiveAt();
                       if (!effectiveAt) return;
                       setOptionalText("primary-effective-at", effectiveAt);
                       primaryPayload = buildServicePayload({{

@@ -191,12 +191,12 @@ jobs:
               commit_url = f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{sha}'
 
           link_html = (
-              f'<a href="{html.escape(source_url, quote=True)}" rel="noreferrer">{html.escape(source_label)}</a>'
+              f'<a href="{html.escape(source_url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(source_label)}</a>'
               if source_url
               else html.escape(source_label)
           )
           commit_html = (
-              f'<a href="{html.escape(commit_url, quote=True)}" rel="noreferrer">{html.escape(sha)}</a>'
+              f'<a href="{html.escape(commit_url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(sha)}</a>'
               if commit_url
               else html.escape(sha or "-")
           )
@@ -393,18 +393,19 @@ jobs:
                     }}, {{}});
                     return parts.year + "-" + parts.month + "-" + parts.day + " " + parts.hour + ":" + parts.minute + ":" + parts.second;
                   }};
-                  const refreshEffectiveAt = async () => {{
+                  const getPageEffectiveAt = () => {{
+                    const fallback = formatPageTime(new Date());
+                    const versionKey = payloadObject["版本"] || "unknown";
+                    const storageKey = "__dev_version_effective_at__:" + versionKey;
                     try {{
-                      const targetUrl = window.location.href === "about:srcdoc" ? document.referrer : window.location.href;
-                      if (!targetUrl) return;
-                      const response = await fetch(targetUrl, {{
-                        method: "HEAD",
-                        credentials: "same-origin",
-                        cache: "no-store"
-                      }});
-                      if (!response.ok) return;
-                      setEffectiveAt(formatPageTime(response.headers.get("Date")));
+                      const existing = window.localStorage.getItem(storageKey);
+                      if (existing) return existing;
+                      window.localStorage.setItem(storageKey, fallback);
                     }} catch {{}}
+                    return fallback;
+                  }};
+                  const refreshEffectiveAt = async () => {{
+                    setEffectiveAt(getPageEffectiveAt());
                   }};
                   refreshEffectiveAt();
                 }})();
