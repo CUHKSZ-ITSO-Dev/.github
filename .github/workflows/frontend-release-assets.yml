@@ -453,7 +453,7 @@ jobs:
                   if (extraServiceUrl) {{
                     fetch(extraServiceUrl, {{ credentials: "same-origin" }})
                       .then((response) => {{
-                        if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
+                        if (!response.ok) throw new Error("HTTP " + response.status);
                         return response.json();
                       }})
                       .then((data) => {{
@@ -472,7 +472,7 @@ jobs:
                         refreshJson();
                       }})
                       .catch((error) => {{
-                        const message = `加载失败：${{error.message}}`;
+                        const message = "加载失败：" + error.message;
                         setText("extra-status", message);
                         payloadObject = {{"前端 UI": primaryPayload, [extraServiceName]: {{"状态": message}}}};
                         refreshJson();
