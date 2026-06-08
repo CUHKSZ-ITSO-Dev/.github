@@ -225,10 +225,25 @@ jobs:
           deploy_triggered_at = format_time(os.environ["VERSION_PAGE_DEPLOY_TRIGGERED_AT"]) or built_at
           source_url = os.environ["VERSION_PAGE_SOURCE_URL"]
           source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
-          extra_service_name = os.environ["VERSION_PAGE_EXTRA_SERVICE_NAME"].strip()
+          repository_name = os.environ.get("GITHUB_REPOSITORY", "").rsplit("/", 1)[-1] or "当前仓库"
+          primary_service_name = repository_name
+          raw_extra_service_name = os.environ["VERSION_PAGE_EXTRA_SERVICE_NAME"].strip()
           extra_service_url = os.environ["VERSION_PAGE_EXTRA_SERVICE_URL"].strip()
-          if extra_service_url and not extra_service_name:
-              extra_service_name = "关联服务"
+
+          def infer_extra_service_name(raw_name, service_url):
+              normalized_url = service_url.lower()
+              if "chat" in normalized_url:
+                  return "Chat"
+              if "uniauth" in normalized_url:
+                  return "UniAuth"
+              if raw_name:
+                  for suffix in (" 后端", " 前端", " 服务", " Backend", " Frontend", " Service"):
+                      if raw_name.endswith(suffix):
+                          raw_name = raw_name[: -len(suffix)]
+                  return raw_name.strip() or "关联服务"
+              return "关联服务"
+
+          extra_service_name = infer_extra_service_name(raw_extra_service_name, extra_service_url) if extra_service_url else ""
           commit_url = ""
           if sha and os.environ.get("GITHUB_SERVER_URL") and os.environ.get("GITHUB_REPOSITORY"):
               commit_url = f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{sha}'
@@ -256,7 +271,7 @@ jobs:
           version_payload_data = primary_payload
           if extra_service_url:
               version_payload_data = {
-                  "前端 UI": primary_payload,
+                  primary_service_name: primary_payload,
                   extra_service_name: {
                       "状态": "加载中",
                       "版本": "-",
@@ -273,8 +288,7 @@ jobs:
               ensure_ascii=False,
               indent=2,
           )
-          page_title = "Chat 开发服版本" if extra_service_url else "开发服版本"
-          primary_heading = "前端 UI" if extra_service_url else "版本信息"
+          page_title = "开发服"
           extra_section_html = ""
           if extra_service_url:
               extra_section_html = f"""
@@ -394,7 +408,7 @@ jobs:
               <main>
                 <h1>{html.escape(page_title)}</h1>
                 <section class="service-card">
-                  <h2>{html.escape(primary_heading)}</h2>
+                  <h2>{html.escape(primary_service_name)}</h2>
                   <dl>
                     <dt>状态</dt>
                     <dd>已加载</dd>
@@ -422,6 +436,7 @@ jobs:
               <script>
                 (() => {{
                   let primaryPayload = {json.dumps(primary_payload, ensure_ascii=False)};
+                  const primaryServiceName = {json.dumps(primary_service_name, ensure_ascii=False)};
                   const extraServiceUrl = {json.dumps(extra_service_url, ensure_ascii=False)};
                   const extraServiceName = {json.dumps(extra_service_name, ensure_ascii=False)};
                   const emptyExtraPayload = (status) => ({{
@@ -435,7 +450,7 @@ jobs:
                     "拉取请求链接": "-"
                   }});
                   let payloadObject = extraServiceUrl
-                    ? {{"前端 UI": primaryPayload, [extraServiceName]: emptyExtraPayload("加载中")}}
+                    ? {{[primaryServiceName]: primaryPayload, [extraServiceName]: emptyExtraPayload("加载中")}}
                     : primaryPayload;
                   let payload = JSON.stringify(payloadObject, null, 2);
                   const button = document.getElementById("copy-json");
@@ -573,7 +588,7 @@ jobs:
                         prUrl: primaryPayload["拉取请求链接"]
                       }});
                       payloadObject = extraServiceUrl
-                        ? {{...payloadObject, "前端 UI": primaryPayload}}
+                        ? {{...payloadObject, [primaryServiceName]: primaryPayload}}
                         : primaryPayload;
                       refreshJson();
                     }} catch {{
@@ -608,7 +623,7 @@ jobs:
                         setOptionalText("extra-effective-at", effectiveAt);
                         setLink("extra-pr", prLabel, prUrl);
                         payloadObject = {{
-                          "前端 UI": primaryPayload,
+                          [primaryServiceName]: primaryPayload,
                           [extraServiceName]: buildServicePayload({{
                             status,
                             version,
@@ -627,7 +642,7 @@ jobs:
                         const message = "加载失败：" + error.message;
                         setText("extra-status", message);
                         setOptionalText("extra-effective-at", "");
-                        payloadObject = {{"前端 UI": primaryPayload, [extraServiceName]: emptyExtraPayload(message)}};
+                        payloadObject = {{[primaryServiceName]: primaryPayload, [extraServiceName]: emptyExtraPayload(message)}};
                         refreshJson();
                       }});
                   }}
@@ -654,12 +669,12 @@ jobs:
               if (!frame) {{
                 frame = document.createElement("iframe");
                 frame.id = "__dev_version_page__";
-                frame.title = "开发服版本";
+                frame.title = "开发服";
                 frame.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:2147483647;background:#f6f8fb;";
                 document.documentElement.appendChild(frame);
               }}
               frame.srcdoc = html;
-              document.title = "开发服版本";
+              document.title = "开发服";
             }};
             if (document.readyState === "loading") {{
               document.addEventListener("DOMContentLoaded", render, {{ once: true }});

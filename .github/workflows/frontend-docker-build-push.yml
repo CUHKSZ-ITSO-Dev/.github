@@ -186,6 +186,7 @@ jobs:
           deploy_triggered_at = format_time(os.environ["VERSION_PAGE_DEPLOY_TRIGGERED_AT"]) or built_at
           source_url = os.environ["VERSION_PAGE_SOURCE_URL"]
           source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
+          repository_name = os.environ.get("GITHUB_REPOSITORY", "").rsplit("/", 1)[-1] or "当前仓库"
           commit_url = ""
           if sha and os.environ.get("GITHUB_SERVER_URL") and os.environ.get("GITHUB_REPOSITORY"):
               commit_url = f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{sha}'
@@ -217,7 +218,7 @@ jobs:
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
-              <title>开发服版本</title>
+              <title>开发服</title>
               <style>
                 body {{
                   margin: 0;
@@ -239,6 +240,10 @@ jobs:
                 h1 {{
                   margin: 0 0 20px;
                   font-size: 22px;
+                }}
+                h2 {{
+                  margin: 0 0 14px;
+                  font-size: 16px;
                 }}
                 dl {{
                   display: grid;
@@ -293,7 +298,8 @@ jobs:
             </head>
             <body>
               <main>
-                <h1>开发服版本</h1>
+                <h1>开发服</h1>
+                <h2>{html.escape(repository_name)}</h2>
                 <dl>
                   <dt>状态</dt>
                   <dd>已加载</dd>
@@ -431,12 +437,12 @@ jobs:
               if (!frame) {{
                 frame = document.createElement("iframe");
                 frame.id = "__dev_version_page__";
-                frame.title = "开发服版本";
+                frame.title = "开发服";
                 frame.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:2147483647;background:#f6f8fb;";
                 document.documentElement.appendChild(frame);
               }}
               frame.srcdoc = html;
-              document.title = "开发服版本";
+              document.title = "开发服";
             }};
             if (document.readyState === "loading") {{
               document.addEventListener("DOMContentLoaded", render, {{ once: true }});
