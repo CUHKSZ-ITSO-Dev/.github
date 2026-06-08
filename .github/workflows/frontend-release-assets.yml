@@ -90,6 +90,10 @@ on:
         required: false
         type: string
         default: Asia/Shanghai
+      version-page-deploy-triggered-at:
+        required: false
+        type: string
+        default: ""
       version-page-extra-service-name:
         required: false
         type: string
@@ -180,6 +184,7 @@ jobs:
           VERSION_PAGE_SOURCE_URL: ${{ inputs.version-page-source-url }}
           VERSION_PAGE_SOURCE_LABEL: ${{ inputs.version-page-source-label }}
           VERSION_PAGE_TIMEZONE: ${{ inputs.version-page-timezone }}
+          VERSION_PAGE_DEPLOY_TRIGGERED_AT: ${{ inputs.version-page-deploy-triggered-at }}
           VERSION_PAGE_EXTRA_SERVICE_NAME: ${{ inputs.version-page-extra-service-name }}
           VERSION_PAGE_EXTRA_SERVICE_URL: ${{ inputs.version-page-extra-service-url }}
         run: |
@@ -204,7 +209,20 @@ jobs:
           dist_path = Path(os.environ["DIST_PATH"])
           version = os.environ["VERSION_PAGE_VERSION"]
           sha = os.environ["VERSION_PAGE_SHA"]
-          built_at = datetime.now(ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])).strftime("%Y-%m-%d %H:%M:%S")
+          page_timezone = ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])
+
+          def format_time(value):
+              value = value.strip()
+              if not value:
+                  return ""
+              try:
+                  parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                  return parsed.astimezone(page_timezone).strftime("%Y-%m-%d %H:%M:%S")
+              except ValueError:
+                  return value
+
+          built_at = datetime.now(page_timezone).strftime("%Y-%m-%d %H:%M:%S")
+          deploy_triggered_at = format_time(os.environ["VERSION_PAGE_DEPLOY_TRIGGERED_AT"]) or built_at
           source_url = os.environ["VERSION_PAGE_SOURCE_URL"]
           source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
           extra_service_name = os.environ["VERSION_PAGE_EXTRA_SERVICE_NAME"].strip()
@@ -229,6 +247,7 @@ jobs:
               "版本": version,
               "提交SHA": sha,
               "构建时间": built_at,
+              "部署触发时间": deploy_triggered_at,
               "拉取请求": source_label,
           }
           version_payload_data = primary_payload
@@ -237,6 +256,11 @@ jobs:
                   "前端 UI": primary_payload,
                   extra_service_name: {
                       "状态": "加载中",
+                      "版本": "-",
+                      "提交SHA": "-",
+                      "构建时间": "-",
+                      "部署触发时间": "-",
+                      "拉取请求": "-",
                   },
               }
           version_payload = json.dumps(
@@ -260,6 +284,10 @@ jobs:
                     <dd id="extra-sha">-</dd>
                     <dt>构建时间</dt>
                     <dd id="extra-built-at">-</dd>
+                    <dt>部署触发时间</dt>
+                    <dd id="extra-deploy-triggered-at">-</dd>
+                    <dt id="extra-effective-at-label" hidden>实际生效时间</dt>
+                    <dd id="extra-effective-at" hidden>-</dd>
                     <dt>拉取请求</dt>
                     <dd id="extra-pr">-</dd>
                   </dl>
@@ -369,6 +397,10 @@ jobs:
                     <dd>{commit_html}</dd>
                     <dt>构建时间</dt>
                     <dd>{html.escape(built_at)}</dd>
+                    <dt>部署触发时间</dt>
+                    <dd>{html.escape(deploy_triggered_at)}</dd>
+                    <dt id="primary-effective-at-label" hidden>实际生效时间</dt>
+                    <dd id="primary-effective-at" hidden>-</dd>
                     <dt>拉取请求</dt>
                     <dd>{link_html}</dd>
                   </dl>
@@ -382,11 +414,19 @@ jobs:
               </main>
               <script>
                 (() => {{
-                  const primaryPayload = {json.dumps(primary_payload, ensure_ascii=False)};
+                  let primaryPayload = {json.dumps(primary_payload, ensure_ascii=False)};
                   const extraServiceUrl = {json.dumps(extra_service_url, ensure_ascii=False)};
                   const extraServiceName = {json.dumps(extra_service_name, ensure_ascii=False)};
+                  const emptyExtraPayload = (status) => ({{
+                    "状态": status,
+                    "版本": "-",
+                    "提交SHA": "-",
+                    "构建时间": "-",
+                    "部署触发时间": "-",
+                    "拉取请求": "-"
+                  }});
                   let payloadObject = extraServiceUrl
-                    ? {{"前端 UI": primaryPayload, [extraServiceName]: {{"状态": "加载中"}}}}
+                    ? {{"前端 UI": primaryPayload, [extraServiceName]: emptyExtraPayload("加载中")}}
                     : primaryPayload;
                   let payload = JSON.stringify(payloadObject, null, 2);
                   const button = document.getElementById("copy-json");
@@ -426,6 +466,19 @@ jobs:
                     const node = document.getElementById(id);
                     if (node) node.textContent = value || "-";
                   }};
+                  const setOptionalText = (id, value) => {{
+                    const node = document.getElementById(id);
+                    const label = document.getElementById(id + "-label");
+                    if (!node) return;
+                    if (!value) {{
+                      node.hidden = true;
+                      if (label) label.hidden = true;
+                      return;
+                    }}
+                    node.textContent = value;
+                    node.hidden = false;
+                    if (label) label.hidden = false;
+                  }};
                   const setLink = (id, label, url) => {{
                     const node = document.getElementById(id);
                     if (!node) return;
@@ -450,16 +503,79 @@ jobs:
                     }}
                     return "";
                   }};
+                  const formatPageTime = (value) => {{
+                    if (!value) return "";
+                    const date = new Date(value);
+                    if (Number.isNaN(date.getTime())) return value;
+                    const parts = new Intl.DateTimeFormat("zh-CN", {{
+                      timeZone: "Asia/Shanghai",
+                      year: "numeric",
+                      month: "2-digit",
+                      day: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                      hour12: false
+                    }}).formatToParts(date).reduce((acc, part) => {{
+                      if (part.type !== "literal") acc[part.type] = part.value;
+                      return acc;
+                    }}, {{}});
+                    return parts.year + "-" + parts.month + "-" + parts.day + " " + parts.hour + ":" + parts.minute + ":" + parts.second;
+                  }};
+                  const buildServicePayload = (values) => {{
+                    const result = {{}};
+                    if (values.status) result["状态"] = values.status;
+                    result["版本"] = values.version || "-";
+                    result["提交SHA"] = values.sha || "-";
+                    result["构建时间"] = values.builtAt || "-";
+                    result["部署触发时间"] = values.deployTriggeredAt || "-";
+                    if (values.effectiveAt) result["实际生效时间"] = values.effectiveAt;
+                    result["拉取请求"] = values.prLabel || "-";
+                    return result;
+                  }};
+                  const refreshPrimaryEffectiveAt = async () => {{
+                    try {{
+                      const response = await fetch(window.location.href, {{
+                        method: "HEAD",
+                        credentials: "same-origin",
+                        cache: "no-store"
+                      }});
+                      if (!response.ok) return;
+                      const effectiveAt = formatPageTime(response.headers.get("Date"));
+                      if (!effectiveAt) return;
+                      setOptionalText("primary-effective-at", effectiveAt);
+                      primaryPayload = buildServicePayload({{
+                        version: primaryPayload["版本"],
+                        sha: primaryPayload["提交SHA"],
+                        builtAt: primaryPayload["构建时间"],
+                        deployTriggeredAt: primaryPayload["部署触发时间"],
+                        effectiveAt,
+                        prLabel: primaryPayload["拉取请求"]
+                      }});
+                      payloadObject = extraServiceUrl
+                        ? {{...payloadObject, "前端 UI": primaryPayload}}
+                        : primaryPayload;
+                      refreshJson();
+                    }} catch {{
+                      setOptionalText("primary-effective-at", "");
+                    }}
+                  }};
+                  refreshPrimaryEffectiveAt();
                   if (extraServiceUrl) {{
                     fetch(extraServiceUrl, {{ credentials: "same-origin" }})
-                      .then((response) => {{
+                      .then(async (response) => {{
                         if (!response.ok) throw new Error("HTTP " + response.status);
-                        return response.json();
+                        const effectiveAt = formatPageTime(response.headers.get("Date"));
+                        const data = await response.json();
+                        return {{ data, effectiveAt }};
                       }})
-                      .then((data) => {{
+                      .then((result) => {{
+                        const data = result.data || {{}};
                         const version = pick(data, "版本", "version");
                         const sha = pick(data, "提交SHA", "sha", "commitSha");
                         const builtAt = pick(data, "构建时间", "builtAt", "built_at");
+                        const deployTriggeredAt = pick(data, "部署触发时间", "deployTriggeredAt", "deploy_triggered_at");
+                        const effectiveAt = pick(data, "实际生效时间", "effectiveAt", "effective_at") || result.effectiveAt;
                         const prLabel = pick(data, "拉取请求", "pullRequest", "pull_request");
                         const prUrl = pick(data, "拉取请求链接", "pullRequestUrl", "pull_request_url");
                         const commitUrl = pick(data, "提交链接", "commitUrl", "commit_url");
@@ -467,14 +583,28 @@ jobs:
                         setText("extra-version", version);
                         setLink("extra-sha", sha, commitUrl);
                         setText("extra-built-at", builtAt);
+                        setText("extra-deploy-triggered-at", deployTriggeredAt);
+                        setOptionalText("extra-effective-at", effectiveAt);
                         setLink("extra-pr", prLabel, prUrl);
-                        payloadObject = {{"前端 UI": primaryPayload, [extraServiceName]: data}};
+                        payloadObject = {{
+                          "前端 UI": primaryPayload,
+                          [extraServiceName]: buildServicePayload({{
+                            status: "已加载",
+                            version,
+                            sha,
+                            builtAt,
+                            deployTriggeredAt,
+                            effectiveAt,
+                            prLabel
+                          }})
+                        }};
                         refreshJson();
                       }})
                       .catch((error) => {{
                         const message = "加载失败：" + error.message;
                         setText("extra-status", message);
-                        payloadObject = {{"前端 UI": primaryPayload, [extraServiceName]: {{"状态": message}}}};
+                        setOptionalText("extra-effective-at", "");
+                        payloadObject = {{"前端 UI": primaryPayload, [extraServiceName]: emptyExtraPayload(message)}};
                         refreshJson();
                       }});
                   }}
