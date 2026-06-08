@@ -244,11 +244,14 @@ jobs:
               else html.escape(sha or "-")
           )
           primary_payload = {
+              "状态": "已加载",
               "版本": version,
               "提交SHA": sha,
+              "提交SHA链接": commit_url,
               "构建时间": built_at,
               "部署触发时间": deploy_triggered_at,
               "拉取请求": source_label,
+              "拉取请求链接": source_url,
           }
           version_payload_data = primary_payload
           if extra_service_url:
@@ -258,9 +261,11 @@ jobs:
                       "状态": "加载中",
                       "版本": "-",
                       "提交SHA": "-",
+                      "提交SHA链接": "-",
                       "构建时间": "-",
                       "部署触发时间": "-",
                       "拉取请求": "-",
+                      "拉取请求链接": "-",
                   },
               }
           version_payload = json.dumps(
@@ -391,6 +396,8 @@ jobs:
                 <section class="service-card">
                   <h2>{html.escape(primary_heading)}</h2>
                   <dl>
+                    <dt>状态</dt>
+                    <dd>已加载</dd>
                     <dt>版本</dt>
                     <dd>{html.escape(version)}</dd>
                     <dt>提交SHA</dt>
@@ -421,9 +428,11 @@ jobs:
                     "状态": status,
                     "版本": "-",
                     "提交SHA": "-",
+                    "提交SHA链接": "-",
                     "构建时间": "-",
                     "部署触发时间": "-",
-                    "拉取请求": "-"
+                    "拉取请求": "-",
+                    "拉取请求链接": "-"
                   }});
                   let payloadObject = extraServiceUrl
                     ? {{"前端 UI": primaryPayload, [extraServiceName]: emptyExtraPayload("加载中")}}
@@ -524,18 +533,22 @@ jobs:
                   }};
                   const buildServicePayload = (values) => {{
                     const result = {{}};
-                    if (values.status) result["状态"] = values.status;
+                    result["状态"] = values.status || "已加载";
                     result["版本"] = values.version || "-";
                     result["提交SHA"] = values.sha || "-";
+                    result["提交SHA链接"] = values.commitUrl || "-";
                     result["构建时间"] = values.builtAt || "-";
                     result["部署触发时间"] = values.deployTriggeredAt || "-";
                     if (values.effectiveAt) result["实际生效时间"] = values.effectiveAt;
                     result["拉取请求"] = values.prLabel || "-";
+                    result["拉取请求链接"] = values.prUrl || "-";
                     return result;
                   }};
                   const refreshPrimaryEffectiveAt = async () => {{
                     try {{
-                      const response = await fetch(window.location.href, {{
+                      const targetUrl = window.location.href === "about:srcdoc" ? document.referrer : window.location.href;
+                      if (!targetUrl) return;
+                      const response = await fetch(targetUrl, {{
                         method: "HEAD",
                         credentials: "same-origin",
                         cache: "no-store"
@@ -545,12 +558,15 @@ jobs:
                       if (!effectiveAt) return;
                       setOptionalText("primary-effective-at", effectiveAt);
                       primaryPayload = buildServicePayload({{
+                        status: primaryPayload["状态"],
                         version: primaryPayload["版本"],
                         sha: primaryPayload["提交SHA"],
+                        commitUrl: primaryPayload["提交SHA链接"],
                         builtAt: primaryPayload["构建时间"],
                         deployTriggeredAt: primaryPayload["部署触发时间"],
                         effectiveAt,
-                        prLabel: primaryPayload["拉取请求"]
+                        prLabel: primaryPayload["拉取请求"],
+                        prUrl: primaryPayload["拉取请求链接"]
                       }});
                       payloadObject = extraServiceUrl
                         ? {{...payloadObject, "前端 UI": primaryPayload}}
@@ -571,6 +587,7 @@ jobs:
                       }})
                       .then((result) => {{
                         const data = result.data || {{}};
+                        const status = pick(data, "状态", "status") || "已加载";
                         const version = pick(data, "版本", "version");
                         const sha = pick(data, "提交SHA", "sha", "commitSha");
                         const builtAt = pick(data, "构建时间", "builtAt", "built_at");
@@ -578,8 +595,8 @@ jobs:
                         const effectiveAt = pick(data, "实际生效时间", "effectiveAt", "effective_at") || result.effectiveAt;
                         const prLabel = pick(data, "拉取请求", "pullRequest", "pull_request");
                         const prUrl = pick(data, "拉取请求链接", "pullRequestUrl", "pull_request_url");
-                        const commitUrl = pick(data, "提交链接", "commitUrl", "commit_url");
-                        setText("extra-status", "已加载");
+                        const commitUrl = pick(data, "提交SHA链接", "提交链接", "commitShaUrl", "commitUrl", "commit_url");
+                        setText("extra-status", status);
                         setText("extra-version", version);
                         setLink("extra-sha", sha, commitUrl);
                         setText("extra-built-at", builtAt);
@@ -589,13 +606,15 @@ jobs:
                         payloadObject = {{
                           "前端 UI": primaryPayload,
                           [extraServiceName]: buildServicePayload({{
-                            status: "已加载",
+                            status,
                             version,
                             sha,
+                            commitUrl,
                             builtAt,
                             deployTriggeredAt,
                             effectiveAt,
-                            prLabel
+                            prLabel,
+                            prUrl
                           }})
                         }};
                         refreshJson();
