@@ -68,6 +68,10 @@ on:
         required: false
         type: string
         default: ""
+      lfs-extra-include:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -88,12 +92,16 @@ jobs:
         if: inputs.lfs-pull
         env:
           LFS_INCLUDE: ${{ inputs.lfs-include }}
+          LFS_EXTRA_INCLUDE: ${{ inputs.lfs-extra-include }}
         run: |
           set -euo pipefail
           if [ -n "$LFS_INCLUDE" ]; then
             git lfs pull --include="$LFS_INCLUDE"
           else
             git lfs pull
+          fi
+          if [ -n "$LFS_EXTRA_INCLUDE" ]; then
+            git lfs pull --include="$LFS_EXTRA_INCLUDE"
           fi
 
       - name: 准备镜像元数据
