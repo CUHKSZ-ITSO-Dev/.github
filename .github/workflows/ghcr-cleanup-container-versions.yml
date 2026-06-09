@@ -1,0 +1,85 @@
+name: 常规 GHCR 容器版本清理
+
+on:
+  workflow_call:
+    inputs:
+      owner:
+        required: false
+        type: string
+        default: CUHKSZ-ITSO-Dev
+      package-name:
+        required: true
+        type: string
+      keep-count:
+        required: false
+        type: number
+        default: 5
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    name: 常规 GHCR 容器版本清理
+    runs-on: ubuntu-latest
+    steps:
+      - name: 清理旧容器版本
+        env:
+          OWNER: ${{ inputs.owner }}
+          PACKAGE_NAME: ${{ inputs.package-name }}
+          KEEP_COUNT: ${{ inputs.keep-count }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          package_name="$(printf '%s' "$PACKAGE_NAME" | tr '[:upper:]' '[:lower:]')"
+          api="https://api.github.com/orgs/${OWNER}/packages/container/${package_name}/versions?per_page=100"
+          echo "获取容器包版本：${OWNER}/${package_name}"
+
+          versions="$(curl -sL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$api")"
+
+          if echo "$versions" | jq -e 'type != "array"' >/dev/null; then
+            message="$(echo "$versions" | jq -r '.message // "未知响应"')"
+            if [ "$message" = "Not Found" ]; then
+              echo "容器包不存在，可能是首次发布，跳过清理。"
+              exit 0
+            fi
+            echo "::error::GitHub API 返回非版本列表：${message}"
+            echo "$versions"
+            exit 1
+          fi
+
+          version_info="$(echo "$versions" | jq -c 'sort_by(.created_at) | reverse | .[] | {id: .id, tags: .metadata.container.tags, created_at: .created_at}')"
+          if [ -z "$version_info" ]; then
+            echo "没有找到容器版本，跳过清理。"
+            exit 0
+          fi
+
+          version_count="$(echo "$version_info" | wc -l | xargs)"
+          echo "找到 ${version_count} 个版本，保留最新 ${KEEP_COUNT} 个。"
+
+          versions_to_delete="$(echo "$version_info" | tail -n +"$((KEEP_COUNT + 1))")"
+          if [ -z "$versions_to_delete" ]; then
+            echo "无需清理。"
+            exit 0
+          fi
+
+          echo "$versions_to_delete" | while read -r version; do
+            id="$(echo "$version" | jq -r '.id')"
+            tags="$(echo "$version" | jq -r '.tags | join(", ")')"
+            created_at="$(echo "$version" | jq -r '.created_at')"
+            echo "删除版本：id=${id}, tags=[${tags}], created_at=${created_at}"
+            status="$(curl -sL -o /tmp/delete-response.txt -w "%{http_code}" -X DELETE \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/orgs/${OWNER}/packages/container/${package_name}/versions/${id}")"
+            if [ "$status" != "204" ]; then
+              echo "::warning::删除版本 ${id} 失败，HTTP ${status}"
+              cat /tmp/delete-response.txt
+            fi
+          done

@@ -13,10 +13,13 @@
 | `.github/workflows/stale-pr.yml` | 统一标记和关闭不活跃 PR，并维护 `stale` / `no-stale` 标签说明。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/golangci-lint.yml` | 统一 Go 静态检查，支持 LFS、CGO、子目录模块和 glob 变更过滤。 | `Chat`、`open-platform`、`UniAuth` |
 | `.github/workflows/go-test.yml` | 统一 Go 测试，支持自动分片、LFS、CGO 和可选测试数据库。 | `Chat`、`open-platform`、`UniAuth` |
-| `.github/workflows/frontend-check.yml` | 统一前端检查，支持 Node/pnpm、缓存、Playwright、glob 变更过滤和自定义检查命令。 | `UI`、`UniAuth` |
+| `.github/workflows/frontend-check.yml` | 统一前端检查，支持 Node、pnpm/npm、缓存、Playwright、glob 变更过滤和自定义检查命令。 | `UI`、`UniAuth`、`Gateway` |
+| `.github/workflows/python-uv-check.yml` | 统一 Python uv 检查，支持 uv 安装依赖、路径过滤、环境变量注入和自定义检查命令。 | `WebSearch`、`doc-intelligence` |
+| `.github/workflows/python-uv-redis-rabbitmq-check.yml` | 统一带 Redis / RabbitMQ 服务的 Python uv 集成检查。 | `doc-intelligence` |
 | `.github/workflows/migration-check.yml` | 统一 PostgreSQL / SQL Server 迁移检查，默认保护历史迁移不可修改或删除。 | `Chat`、`open-platform`、`UniAuth` |
 | `.github/workflows/pr-dev-version.yml` | 统一生成 PR 开发服发布版本标签，不包含具体部署目标；默认从调用仓库名自动生成小写 slug，格式为 `dev-uniauth-pr-371-49afc8f`，使用环境、仓库 slug、PR 号和 7 位短 SHA。仓库名和服务名不一致时可传入 `repository-slug` 覆盖；保留可选 run 后缀仅用于明确需要绕过缓存或强制重发同一源码版本的特殊场景。 | `UI`、`UniAuth` |
-| `.github/workflows/docker-build-push.yml` | 统一 Docker 镜像构建与推送流程，由业务仓库传入镜像名、上下文和 Dockerfile；支持按需 checkout 指定 ref，并可在 Git LFS 默认拉取后追加指定 include。 | `Chat`、`UniAuth` |
+| `.github/workflows/docker-build-push.yml` | 统一 Docker 镜像构建与推送流程，由业务仓库传入镜像名、上下文和 Dockerfile；支持按需 checkout 指定 ref，并可在 Git LFS 默认拉取后追加指定 include。 | `Chat`、`UniAuth`、`Gateway`、`open-platform`、`Doubao-Speech-Service`、`WebSearch`、`doc-intelligence`、`rag` |
+| `.github/workflows/ghcr-cleanup-container-versions.yml` | 统一清理 GHCR 容器包旧版本，默认保留最新 5 个版本。 | `doc-intelligence`、`rag` |
 | `.github/workflows/frontend-docker-build-push.yml` | 统一前端构建后再构建 Docker 镜像的流程，用于 Dockerfile 依赖预构建静态目录的项目；支持按需生成同源 `version-data.json`，字段包含状态、版本、完整提交 SHA、提交链接、CI 触发时间、构建时间、拉取请求和拉取请求链接。 | `UniAuth` |
 | `.github/workflows/frontend-release-assets.yml` | 统一前端静态制品构建、打包和 GitHub Release 发布流程；支持按需生成同源 `version-data.json`，字段包含状态、版本、完整提交 SHA、提交链接、CI 触发时间、构建时间、拉取请求和拉取请求链接。 | `UI` |
 | `.github/workflows/gitops-yq-bump.yml` | 统一 GitOps 仓库 checkout、yq 更新、提交和重试推送流程。具体仓库、路径和字段由业务仓库传入。 | `UI`、`UniAuth` |

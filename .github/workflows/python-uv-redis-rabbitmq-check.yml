@@ -1,0 +1,81 @@
+name: 常规 Python uv Redis RabbitMQ 检查
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: true
+        type: string
+      working-directory:
+        required: false
+        type: string
+        default: "."
+      sync-command:
+        required: false
+        type: string
+        default: "uv sync --dev --frozen"
+      check-command:
+        required: true
+        type: string
+      env-vars:
+        required: false
+        type: string
+        default: |
+          REDIS_URL=redis://localhost:6379
+          RABBITMQ_URL=amqp://guest:guest@localhost:5672/
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: 常规 Python uv Redis RabbitMQ 检查
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: 加载环境变量
+        if: inputs.env-vars != ''
+        env:
+          ENV_VARS: ${{ inputs.env-vars }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            echo "$line" >> "$GITHUB_ENV"
+          done <<< "$ENV_VARS"
+
+      - name: 安装依赖
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.sync-command }}
+
+      - name: 执行 Python 集成检查
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.check-command }}
