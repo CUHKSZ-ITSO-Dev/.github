@@ -1,0 +1,230 @@
+name: 常规 Go Dev Docker 镜像构建
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        required: true
+        type: string
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
+      version-tag:
+        required: true
+        type: string
+      go-version:
+        required: false
+        type: string
+        default: ""
+      go-version-file:
+        required: false
+        type: string
+        default: go.mod
+      working-directory:
+        required: false
+        type: string
+        default: "."
+      main-package:
+        required: false
+        type: string
+        default: main.go
+      binary-name:
+        required: true
+        type: string
+      dockerfile:
+        required: false
+        type: string
+        default: Dockerfile
+      context:
+        required: false
+        type: string
+        default: "."
+      version-package:
+        required: true
+        type: string
+      git-commit:
+        required: true
+        type: string
+      git-message:
+        required: false
+        type: string
+        default: ""
+      build-time:
+        required: true
+        type: string
+      image-title:
+        required: false
+        type: string
+        default: ""
+      image-description:
+        required: false
+        type: string
+        default: ""
+      platforms:
+        required: false
+        type: string
+        default: linux/amd64
+      cgo-enabled:
+        required: false
+        type: string
+        default: "0"
+      goos:
+        required: false
+        type: string
+        default: linux
+      goarch:
+        required: false
+        type: string
+        default: amd64
+      build-tags:
+        required: false
+        type: string
+        default: ""
+      ldflags-extra:
+        required: false
+        type: string
+        default: ""
+      push:
+        required: false
+        type: boolean
+        default: true
+      provenance:
+        required: false
+        type: boolean
+        default: false
+      cache-enabled:
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: 常规 Go Dev Docker 镜像构建
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.sha }}
+
+      - name: 安装 Go
+        if: inputs.go-version == ''
+        uses: actions/setup-go@v6
+        with:
+          cache: true
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+          go-version-file: ${{ inputs.working-directory }}/${{ inputs.go-version-file }}
+
+      - name: 安装指定版本 Go
+        if: inputs.go-version != ''
+        uses: actions/setup-go@v6
+        with:
+          cache: true
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+          go-version: ${{ inputs.go-version }}
+
+      - name: 构建 Go 二进制
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          BINARY_NAME: ${{ inputs.binary-name }}
+          MAIN_PACKAGE: ${{ inputs.main-package }}
+          VERSION_PACKAGE: ${{ inputs.version-package }}
+          VERSION_TAG: ${{ inputs.version-tag }}
+          GIT_COMMIT: ${{ inputs.git-commit }}
+          GIT_MESSAGE: ${{ inputs.git-message }}
+          BUILD_TIME: ${{ inputs.build-time }}
+          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          GOOS: ${{ inputs.goos }}
+          GOARCH: ${{ inputs.goarch }}
+          BUILD_TAGS: ${{ inputs.build-tags }}
+          LDFLAGS_EXTRA: ${{ inputs.ldflags-extra }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY' > /tmp/dev-ldflags.txt
+          import os
+          import shlex
+
+          package = os.environ["VERSION_PACKAGE"]
+          values = {
+              "GitCommit": os.environ["GIT_COMMIT"],
+              "GitMessage": os.environ["GIT_MESSAGE"],
+              "BuildTime": os.environ["BUILD_TIME"],
+              "GitTag": os.environ["VERSION_TAG"],
+          }
+          flags = ["-w", "-s"]
+          extra = os.environ.get("LDFLAGS_EXTRA", "").strip()
+          if extra:
+              flags.extend(shlex.split(extra))
+          for name, value in values.items():
+              flags.extend(["-X", f"{package}.{name}={value}"])
+          print(" ".join(shlex.quote(flag) for flag in flags))
+          PY
+
+          ldflags="$(cat /tmp/dev-ldflags.txt)"
+          build_args=(-buildvcs=false -ldflags="$ldflags" -o "$BINARY_NAME")
+          if [ -n "$BUILD_TAGS" ]; then
+            build_args=(-tags "$BUILD_TAGS" "${build_args[@]}")
+          fi
+          go build "${build_args[@]}" "$MAIN_PACKAGE"
+
+      - name: 准备镜像元数据
+        id: plan
+        env:
+          VERSION_TAG: ${{ inputs.version-tag }}
+          IMAGE_TITLE: ${{ inputs.image-title }}
+          IMAGE_DESCRIPTION: ${{ inputs.image-description }}
+        run: |
+          set -euo pipefail
+          {
+            echo "tags<<EOF"
+            echo "type=raw,value=${VERSION_TAG}"
+            echo "EOF"
+
+            echo "labels<<EOF"
+            if [ -n "$IMAGE_DESCRIPTION" ]; then
+              echo "org.opencontainers.image.description=${IMAGE_DESCRIPTION}"
+            fi
+            echo "org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}"
+            echo "org.opencontainers.image.revision={{sha}}"
+            echo "org.opencontainers.image.version=${VERSION_TAG}"
+            if [ -n "$IMAGE_TITLE" ]; then
+              echo "org.opencontainers.image.title=${IMAGE_TITLE}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.image-name }}
+          tags: ${{ steps.plan.outputs.tags }}
+          labels: ${{ steps.plan.outputs.labels }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.push }}
+          provenance: ${{ inputs.provenance }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: ${{ inputs.cache-enabled && 'type=gha' || '' }}
+          cache-to: ${{ inputs.cache-enabled && 'type=gha,mode=max' || '' }}
