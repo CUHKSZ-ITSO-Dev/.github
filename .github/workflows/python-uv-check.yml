@@ -1,28 +1,22 @@
-name: 常规前端检查
+name: 常规 Python uv 检查
 
 on:
   workflow_call:
     inputs:
+      python-version:
+        required: true
+        type: string
       working-directory:
         required: false
         type: string
         default: "."
-      node-version:
+      sync-command:
         required: false
         type: string
-        default: "22"
-      pnpm-version:
-        required: false
+        default: "uv sync --dev --frozen"
+      check-command:
+        required: true
         type: string
-        default: "10.15.1"
-      package-manager:
-        required: false
-        type: string
-        default: pnpm
-      cache-dependency-path:
-        required: false
-        type: string
-        default: "**/pnpm-lock.yaml"
       changed-paths:
         required: false
         type: string
@@ -40,30 +34,22 @@ on:
         required: false
         type: string
         default: some
-      install-command:
-        required: false
-        type: string
-        default: "pnpm install --frozen-lockfile"
-      playwright-browsers:
-        required: false
-        type: string
-        default: ""
-      check-command:
-        required: false
-        type: string
-        default: "pnpm run lint"
       skip-draft-pr:
         required: false
         type: boolean
         default: true
+      env-vars:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
   pull-requests: read
 
 jobs:
-  frontend:
-    name: 常规前端检查
+  check:
+    name: 常规 Python uv 检查
     runs-on: ubuntu-latest
     steps:
       - name: 准备路径过滤配置
@@ -102,7 +88,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 检查是否有前端相关改动
+      - name: 检查是否有 Python 相关改动
         id: check
         uses: dorny/paths-filter@v4
         if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
@@ -111,7 +97,7 @@ jobs:
           predicate-quantifier: ${{ inputs.predicate-quantifier }}
           token: ${{ github.token }}
 
-      - name: 判断是否执行前端检查
+      - name: 判断是否执行 Python 检查
         id: plan
         env:
           CHANGED_OUTPUT: ${{ steps.check.outputs.changed }}
@@ -123,7 +109,7 @@ jobs:
             [ "${{ github.event_name }}" = "pull_request" ] &&
             [ "${{ github.event.pull_request.draft }}" = "true" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "草稿 PR 跳过前端检查，门禁返回成功。"
+            echo "草稿 PR 跳过 Python 检查，门禁返回成功。"
             exit 0
           fi
 
@@ -133,41 +119,43 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "PR 无前端相关改动，跳过前端检查，门禁返回成功。"
+            echo "PR 无 Python 相关改动，跳过 Python 检查，门禁返回成功。"
           fi
 
       - uses: actions/checkout@v6
         if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
 
-      - name: 安装 pnpm
-        if: steps.plan.outputs.run == 'true' && inputs.package-manager == 'pnpm'
-        uses: pnpm/action-setup@v6
-        with:
-          version: ${{ inputs.pnpm-version }}
-
-      - name: 安装 Node.js
+      - name: 安装 uv
         if: steps.plan.outputs.run == 'true'
-        uses: actions/setup-node@v6
+        uses: astral-sh/setup-uv@v6
+
+      - name: 安装 Python
+        if: steps.plan.outputs.run == 'true'
+        uses: actions/setup-python@v5
         with:
-          node-version: ${{ inputs.node-version }}
-          cache: ${{ inputs.package-manager }}
-          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+          python-version: ${{ inputs.python-version }}
+
+      - name: 加载环境变量
+        if: steps.plan.outputs.run == 'true' && inputs.env-vars != ''
+        env:
+          ENV_VARS: ${{ inputs.env-vars }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            echo "$line" >> "$GITHUB_ENV"
+          done <<< "$ENV_VARS"
 
       - name: 安装依赖
         if: steps.plan.outputs.run == 'true'
         working-directory: ${{ inputs.working-directory }}
-        run: ${{ inputs.install-command }}
+        run: ${{ inputs.sync-command }}
 
-      - name: 安装 Playwright 浏览器
-        if: steps.plan.outputs.run == 'true' && inputs.playwright-browsers != ''
-        working-directory: ${{ inputs.working-directory }}
-        run: pnpm exec playwright install --with-deps ${{ inputs.playwright-browsers }}
-
-      - name: 执行前端检查
+      - name: 执行 Python 检查
         if: steps.plan.outputs.run == 'true'
         working-directory: ${{ inputs.working-directory }}
         run: ${{ inputs.check-command }}
 
-      - name: 跳过前端检查
+      - name: 跳过 Python 检查
         if: steps.plan.outputs.run != 'true'
-        run: echo "无需执行前端检查。"
+        run: echo "无需执行 Python 检查。"
