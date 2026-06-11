@@ -83,10 +83,6 @@ on:
         required: false
         type: string
         default: Asia/Shanghai
-      version-page-deploy-triggered-at:
-        required: false
-        type: string
-        default: ""
       dist-dir:
         required: false
         type: string
@@ -147,7 +143,6 @@ jobs:
           VERSION_PAGE_SOURCE_URL: ${{ inputs.version-page-source-url }}
           VERSION_PAGE_SOURCE_LABEL: ${{ inputs.version-page-source-label }}
           VERSION_PAGE_TIMEZONE: ${{ inputs.version-page-timezone }}
-          VERSION_PAGE_DEPLOY_TRIGGERED_AT: ${{ inputs.version-page-deploy-triggered-at }}
         run: |
           set -euo pipefail
 
@@ -170,7 +165,6 @@ jobs:
           version = os.environ["VERSION_PAGE_VERSION"]
           sha = os.environ["VERSION_PAGE_SHA"]
           built_at = datetime.now(ZoneInfo(os.environ["VERSION_PAGE_TIMEZONE"])).strftime("%Y-%m-%d %H:%M:%S")
-          triggered_at = os.environ["VERSION_PAGE_DEPLOY_TRIGGERED_AT"].strip()
           source_url = os.environ["VERSION_PAGE_SOURCE_URL"]
           source_label = os.environ["VERSION_PAGE_SOURCE_LABEL"] or source_url or "-"
           commit_url = ""
@@ -178,13 +172,10 @@ jobs:
               commit_url = f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{sha}'
 
           version_data = {
-              "状态": "已加载",
               "版本": version,
               "提交SHA": sha,
               "提交SHA链接": commit_url,
           }
-          if triggered_at:
-              version_data["CI 触发时间"] = triggered_at.replace("T", " ").split("+", 1)[0]
           version_data.update(
               {
                   "构建时间": built_at,
