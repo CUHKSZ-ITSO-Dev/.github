@@ -1,0 +1,44 @@
+name: PR 开发发布资格检查
+
+on:
+  workflow_call:
+    inputs:
+      pr-number:
+        required: true
+        type: string
+      commit-sha:
+        required: true
+        type: string
+      label:
+        required: false
+        type: string
+        default: auto-deploy-to-dev-server
+    outputs:
+      eligible:
+        value: ${{ jobs.check.outputs.eligible }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      eligible: ${{ steps.check.outputs.eligible }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          EVENT_SHA: ${{ inputs.commit-sha }}
+          REQUIRED_LABEL: ${{ inputs.label }}
+        run: |
+          set -euo pipefail
+          payload=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")
+          state=$(jq -r '.state' <<<"$payload")
+          sha=$(jq -r '.head.sha' <<<"$payload")
+          labelled=$(jq -r --arg label "$REQUIRED_LABEL" '[.labels[].name] | index($label) != null' <<<"$payload")
+          if test "$state" = open && test "$sha" = "$EVENT_SHA" && test "$labelled" = true; then
+            echo 'eligible=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'eligible=false' >> "$GITHUB_OUTPUT"
+          fi
