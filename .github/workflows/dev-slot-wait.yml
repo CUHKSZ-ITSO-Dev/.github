@@ -45,13 +45,13 @@ jobs:
           case "$SERVICE" in
             chat) values_file='gpt-platform-env/dev/units/chat.yaml'; receipt_expression='(.chatBackend.devSlot.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
             uniauth) values_file='gpt-platform-env/dev/units/uniauth.yaml'; receipt_expression='(.uniauth.devSlot.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
-            ui) values_file='gpt-platform-env/dev/units/ui-build.yaml'; receipt_expression=''; completed_expression='.uiBuilder.completedOperationID // ""' ;;
-            open-platform) values_file='gpt-platform-env/dev/units/open-platform.yaml'; receipt_expression=''; completed_expression='.openPlatform.devRelease.completedID // ""' ;;
-            doubao) values_file='gpt-platform-env/dev/units/doubao.yaml'; receipt_expression=''; completed_expression='.doubaoSpeech.devRelease.completedID // ""' ;;
-            websearch) values_file='gpt-platform-env/dev/units/websearch.yaml'; receipt_expression=''; completed_expression='.websearch.devRelease.completedID // ""' ;;
-            rag) values_file='gpt-platform-env/dev/units/rag.yaml'; receipt_expression=''; completed_expression='.rag.devRelease.completedID // ""' ;;
-            docintel) values_file='gpt-platform-env/dev/units/docintel.yaml'; receipt_expression=''; completed_expression='.docintel.devRelease.completedID // ""' ;;
-            ui-cdn) values_file='gpt-platform-env/dev/units/ui-cdn.yaml'; receipt_expression=''; completed_expression='.uiCdn.devRelease.completedID // ""' ;;
+            ui) values_file='gpt-platform-env/dev/units/ui-build.yaml'; receipt_expression='(.uiBuilder.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
+            open-platform) values_file='gpt-platform-env/dev/units/open-platform.yaml'; receipt_expression='(.openPlatform.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
+            doubao) values_file='gpt-platform-env/dev/units/doubao.yaml'; receipt_expression='(.doubaoSpeech.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
+            websearch) values_file='gpt-platform-env/dev/units/websearch.yaml'; receipt_expression='(.websearch.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
+            rag) values_file='gpt-platform-env/dev/units/rag.yaml'; receipt_expression='(.rag.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
+            docintel) values_file='gpt-platform-env/dev/units/docintel.yaml'; receipt_expression='(.docintel.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
+            ui-cdn) values_file='gpt-platform-env/dev/units/ui-cdn.yaml'; receipt_expression='(.uiCdn.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
             *) echo "不支持的开发发布服务: $SERVICE" >&2; exit 1 ;;
           esac
           deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))

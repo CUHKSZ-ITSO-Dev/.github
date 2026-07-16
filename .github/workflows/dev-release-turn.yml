@@ -1,0 +1,173 @@
+name: 等待并激活开发发布轮次
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      operation-id:
+        required: true
+        type: string
+      timeout-seconds:
+        required: false
+        type: number
+        default: 18000
+      ticket-ttl-seconds:
+        required: false
+        type: number
+        default: 14400
+    secrets:
+      deploy-key:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  turn:
+    name: 等待服务 FIFO 轮次
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: CUHKSZ-ITSO-Dev/Cluster
+          ssh-key: ${{ secrets.deploy-key }}
+          fetch-depth: 0
+          path: cluster
+
+      - name: 安装 yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.45.4/yq_linux_amd64
+          echo 'b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69  /usr/local/bin/yq' | sha256sum -c -
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: 等待队首并原子激活
+        working-directory: cluster
+        env:
+          SERVICE: ${{ inputs.service }}
+          OPERATION_ID: ${{ inputs.operation-id }}
+          TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+          TICKET_TTL_SECONDS: ${{ inputs.ticket-ttl-seconds }}
+        run: |
+          set -euo pipefail
+          case "$SERVICE" in
+            open-platform) file=gpt-platform-env/dev/units/open-platform.yaml; release_path=.openPlatform.devRelease; image_path=.openPlatform.image ;;
+            doubao) file=gpt-platform-env/dev/units/doubao.yaml; release_path=.doubaoSpeech.devRelease; image_path=.doubaoSpeech.image ;;
+            websearch) file=gpt-platform-env/dev/units/websearch.yaml; release_path=.websearch.devRelease; image_path=.websearch.api.image ;;
+            rag) file=gpt-platform-env/dev/units/rag.yaml; release_path=.rag.devRelease; image_path=.rag.image ;;
+            docintel) file=gpt-platform-env/dev/units/docintel.yaml; release_path=.docintel.devRelease; image_path=.docintel.image ;;
+            ui-cdn) file=gpt-platform-env/dev/units/ui-cdn.yaml; release_path=.uiCdn.devRelease; image_path=.uiCdn.image ;;
+            *) echo "不支持的开发发布服务: $SERVICE" >&2; exit 1 ;;
+          esac
+          export RELEASE_PATH="$release_path" IMAGE_PATH="$image_path" OPERATION_ID
+
+          receipt_status() {
+            yq '(eval(strenv(RELEASE_PATH)).receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""' "$file"
+          }
+          refresh() {
+            git fetch --quiet origin main
+            git reset --hard --quiet origin/main
+          }
+
+          deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+          while test "$(date +%s)" -lt "$deadline"; do
+            refresh
+            count=$(yq '[eval(strenv(RELEASE_PATH)).queue[]? | select(.id == strenv(OPERATION_ID))] | length' "$file")
+            if test "$count" = 0; then
+              status=$(receipt_status)
+              test "$status" = succeeded && exit 0
+              echo "开发发布票据 $OPERATION_ID 不存在（receipt=$status）" >&2
+              exit 1
+            fi
+            created=$(yq '(eval(strenv(RELEASE_PATH)).queue[] | select(.id == strenv(OPERATION_ID)) | .createdAt) // 0' "$file")
+            if test "$created" -le $(( $(date +%s) - TICKET_TTL_SECONDS )); then
+              echo "开发发布票据 $OPERATION_ID 已过期" >&2
+              exit 1
+            fi
+            head=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].id // ""' "$file")
+            ready=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].ready // false' "$file")
+            active=$(yq 'eval(strenv(RELEASE_PATH)).operationID // ""' "$file")
+            completed=$(yq 'eval(strenv(RELEASE_PATH)).completedID // ""' "$file")
+            rollback=$(yq 'eval(strenv(RELEASE_PATH)).rollbackPending // false' "$file")
+            if test "$SERVICE" = ui-cdn; then release_lock=$(yq '.uiCdn.releaseLock.id // ""' "$file"); else release_lock=""; fi
+            test "$head" = "$OPERATION_ID" && test "$ready" = true && test "$active" = "$completed" && test "$rollback" != true && test -z "$release_lock" && break
+            sleep 10
+          done
+          test "$(date +%s)" -lt "$deadline" || { echo "等待 $OPERATION_ID 轮次超时" >&2; exit 1; }
+
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          for attempt in 1 2 3 4 5; do
+            refresh
+            count=$(yq '[eval(strenv(RELEASE_PATH)).queue[]? | select(.id == strenv(OPERATION_ID))] | length' "$file")
+            if test "$count" = 0; then
+              test "$(receipt_status)" = succeeded && exit 0
+              echo "激活前票据 $OPERATION_ID 丢失" >&2
+              exit 1
+            fi
+            head=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].id // ""' "$file")
+            ready=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].ready // false' "$file")
+            active=$(yq 'eval(strenv(RELEASE_PATH)).operationID // ""' "$file")
+            completed=$(yq 'eval(strenv(RELEASE_PATH)).completedID // ""' "$file")
+            rollback=$(yq 'eval(strenv(RELEASE_PATH)).rollbackPending // false' "$file")
+            if test "$SERVICE" = ui-cdn; then release_lock=$(yq '.uiCdn.releaseLock.id // ""' "$file"); else release_lock=""; fi
+            test "$head" = "$OPERATION_ID" && test "$ready" = true && test "$active" = "$completed" && test "$rollback" != true && test -z "$release_lock" || { sleep $(( attempt * 2 )); continue; }
+
+            kind=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].kind' "$file")
+            pr=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].prNumber // ""' "$file")
+            image_tag=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].imageTag // ""' "$file")
+            mode=$(yq 'eval(strenv(RELEASE_PATH)).mode // "main"' "$file")
+            current=$(yq 'eval(strenv(RELEASE_PATH)).prNumber // ""' "$file")
+            export KIND="$kind" PR_NUMBER="$pr" IMAGE_TAG="$image_tag"
+            noop=false
+
+            if test "$kind" = pr; then
+              test -n "$image_tag" || { echo 'PR 票据缺少镜像' >&2; exit 1; }
+              if test "$mode" = main; then main_tag=$(yq 'eval(strenv(IMAGE_PATH)).tag // ""' "$file"); else main_tag=$(yq 'eval(strenv(RELEASE_PATH)).mainTag // ""' "$file"); fi
+              export MAIN_TAG="$main_tag"
+              yq -i 'eval(strenv(RELEASE_PATH)).previous = {"imageTag": (eval(strenv(IMAGE_PATH)).tag // ""), "imageTagPresent": (eval(strenv(IMAGE_PATH)).tag != null), "imageDigest": (eval(strenv(IMAGE_PATH)).digest // ""), "imageDigestPresent": (eval(strenv(IMAGE_PATH)).digest != null), "mode": (eval(strenv(RELEASE_PATH)).mode // "main"), "prNumber": (eval(strenv(RELEASE_PATH)).prNumber // ""), "mainTag": (eval(strenv(RELEASE_PATH)).mainTag // "")}' "$file"
+              yq -i 'eval(strenv(IMAGE_PATH)).tag = strenv(IMAGE_TAG) | del(eval(strenv(IMAGE_PATH)).digest) | eval(strenv(IMAGE_PATH)).pullPolicy = "Always" | eval(strenv(RELEASE_PATH)).mainTag = strenv(MAIN_TAG) | eval(strenv(RELEASE_PATH)).mode = "pr" | eval(strenv(RELEASE_PATH)).prNumber = strenv(PR_NUMBER) | eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID)' "$file"
+            elif test "$kind" = main; then
+              test -n "$image_tag" || { echo '主版本票据缺少镜像' >&2; exit 1; }
+              if test "$mode" = main || test "$current" = "$pr"; then
+                yq -i 'eval(strenv(RELEASE_PATH)).previous = {"imageTag": (eval(strenv(IMAGE_PATH)).tag // ""), "imageTagPresent": (eval(strenv(IMAGE_PATH)).tag != null), "imageDigest": (eval(strenv(IMAGE_PATH)).digest // ""), "imageDigestPresent": (eval(strenv(IMAGE_PATH)).digest != null), "mode": (eval(strenv(RELEASE_PATH)).mode // "main"), "prNumber": (eval(strenv(RELEASE_PATH)).prNumber // ""), "mainTag": (eval(strenv(RELEASE_PATH)).mainTag // "")}' "$file"
+                yq -i 'eval(strenv(IMAGE_PATH)).tag = strenv(IMAGE_TAG) | del(eval(strenv(IMAGE_PATH)).digest) | eval(strenv(IMAGE_PATH)).pullPolicy = "Always" | eval(strenv(RELEASE_PATH)).mainTag = strenv(IMAGE_TAG) | eval(strenv(RELEASE_PATH)).mode = "main" | eval(strenv(RELEASE_PATH)).prNumber = "" | eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID)' "$file"
+              else
+                noop=true
+                yq -i 'eval(strenv(RELEASE_PATH)).mainTag = strenv(IMAGE_TAG)' "$file"
+              fi
+            elif test "$kind" = restore; then
+              if test "$mode" = pr && test "$current" = "$pr"; then
+                main_tag=$(yq 'eval(strenv(RELEASE_PATH)).mainTag // ""' "$file"); export MAIN_TAG="$main_tag"
+                yq -i 'eval(strenv(RELEASE_PATH)).previous = {"imageTag": (eval(strenv(IMAGE_PATH)).tag // ""), "imageTagPresent": (eval(strenv(IMAGE_PATH)).tag != null), "imageDigest": (eval(strenv(IMAGE_PATH)).digest // ""), "imageDigestPresent": (eval(strenv(IMAGE_PATH)).digest != null), "mode": (eval(strenv(RELEASE_PATH)).mode // "main"), "prNumber": (eval(strenv(RELEASE_PATH)).prNumber // ""), "mainTag": (eval(strenv(RELEASE_PATH)).mainTag // "")}' "$file"
+                if test -n "$main_tag"; then yq -i 'eval(strenv(IMAGE_PATH)).tag = strenv(MAIN_TAG)' "$file"; else yq -i 'del(eval(strenv(IMAGE_PATH)).tag)' "$file"; fi
+                yq -i 'del(eval(strenv(IMAGE_PATH)).digest) | eval(strenv(IMAGE_PATH)).pullPolicy = "Always" | eval(strenv(RELEASE_PATH)).mode = "main" | eval(strenv(RELEASE_PATH)).prNumber = "" | eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID)' "$file"
+              else
+                noop=true
+              fi
+            else
+              echo "非法票据类型: $kind" >&2
+              exit 1
+            fi
+
+            if test "$noop" = false && test "$SERVICE" = ui-cdn; then
+              yq -i '.uiCdn.releaseLock = {"owner": "ui-cdn", "id": strenv(OPERATION_ID)}' "$file"
+            fi
+            if test "$noop" = true; then
+              FINISHED_AT="$(date -u +%s)"
+              RECEIPT_CUTOFF="$(( $(date +%s) - 7 * 24 * 60 * 60 ))"
+              export FINISHED_AT RECEIPT_CUTOFF
+              yq -i 'eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID) | eval(strenv(RELEASE_PATH)).completedID = strenv(OPERATION_ID) | eval(strenv(RELEASE_PATH)).completedAt = env(FINISHED_AT) | eval(strenv(RELEASE_PATH)).receipts = (((eval(strenv(RELEASE_PATH)).receipts // []) | map(select((.finishedAt // 0) >= env(RECEIPT_CUTOFF)))) + [{"id": strenv(OPERATION_ID), "status": "succeeded", "result": "noop", "finishedAt": env(FINISHED_AT)}])' "$file"
+            fi
+            yq -i 'eval(strenv(RELEASE_PATH)).queue |= .[1:]' "$file"
+
+            git add "$file"
+            git diff --cached --quiet && { echo "激活 $OPERATION_ID 未产生 GitOps 变更" >&2; exit 1; }
+            git commit -m "chore(dev): 激活 $SERVICE 发布 $OPERATION_ID"
+            git push origin HEAD:main && exit 0
+            sleep $(( attempt * 2 ))
+          done
+          echo "原子激活 $OPERATION_ID 失败" >&2
+          exit 1
