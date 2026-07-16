@@ -42,18 +42,27 @@ jobs:
         run: |
           set -euo pipefail
           case "$SERVICE" in
-            chat) values_file='gpt-platform-env/dev/units/chat.yaml'; expression='.chatBackend.devSlot.operation.completedID // ""' ;;
-            uniauth) values_file='gpt-platform-env/dev/units/uniauth.yaml'; expression='.uniauth.devSlot.operation.completedID // ""' ;;
-            ui) values_file='gpt-platform-env/dev/units/ui-build.yaml'; expression='.uiBuilder.completedOperationID // ""' ;;
+            chat) values_file='gpt-platform-env/dev/units/chat.yaml'; receipt_expression='(.chatBackend.devSlot.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
+            uniauth) values_file='gpt-platform-env/dev/units/uniauth.yaml'; receipt_expression='(.uniauth.devSlot.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | last | .status) // ""'; completed_expression='' ;;
+            ui) values_file='gpt-platform-env/dev/units/ui-build.yaml'; receipt_expression=''; completed_expression='.uiBuilder.completedOperationID // ""' ;;
             *) echo "不支持的开发发布服务: $SERVICE" >&2; exit 1 ;;
           esac
           deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
           while test "$(date +%s)" -lt "$deadline"; do
             git -C cluster fetch --quiet origin main
-            completed=$(git -C cluster show "origin/main:$values_file" | yq "$expression")
-            if test "$completed" = "$OPERATION_ID"; then
-              echo "开发发布操作 $OPERATION_ID 已完成。"
-              exit 0
+            payload=$(git -C cluster show "origin/main:$values_file")
+            if test -n "$receipt_expression"; then
+              status=$(printf '%s' "$payload" | yq "$receipt_expression")
+              case "$status" in
+                succeeded) echo "开发发布操作 $OPERATION_ID 已完成。"; exit 0 ;;
+                failed|stale|expired) echo "开发发布操作 $OPERATION_ID 以 $status 结束。" >&2; exit 1 ;;
+              esac
+            else
+              completed=$(printf '%s' "$payload" | yq "$completed_expression")
+              if test "$completed" = "$OPERATION_ID"; then
+                echo "开发发布操作 $OPERATION_ID 已完成。"
+                exit 0
+              fi
             fi
             sleep 10
           done
