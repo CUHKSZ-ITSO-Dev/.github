@@ -118,7 +118,7 @@ jobs:
           if test '${{ inputs.kind }}' = pr && test '${{ needs.verify-pr.outputs.eligible }}' != true; then
             FINISHED_AT="$(date -u +%s)"
             RECEIPT_CUTOFF="$(( $(date +%s) - 7 * 24 * 60 * 60 ))"
-            export INDEX FINISHED_AT RECEIPT_CUTOFF
+            export INDEX="$index" FINISHED_AT RECEIPT_CUTOFF
             yq -i 'del(eval(strenv(RELEASE_PATH)).queue[env(INDEX)]) | eval(strenv(RELEASE_PATH)).receipts = (((eval(strenv(RELEASE_PATH)).receipts // []) | map(select((.finishedAt // 0) >= env(RECEIPT_CUTOFF) and .id != strenv(OPERATION_ID)))) + [{"id": strenv(OPERATION_ID), "status": "stale", "result": "ineligible", "finishedAt": env(FINISHED_AT)}])' "$file"
             exit 0
           fi
