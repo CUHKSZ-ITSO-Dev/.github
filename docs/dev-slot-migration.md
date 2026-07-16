@@ -33,7 +33,7 @@ active:
 
 ## main 提升
 
-合并后的 main 直接将当前 PR 数据库重分类为开发主库，并保留该 PR 的不可变镜像标签（其提交与已合并 main 一致），直到常规 main 发布流程写入新的 main 镜像标签；迁移 Job 会在同一同步中执行 `migrate up`。这避免了在 main 镜像尚未发布时回退到静态 Chart 基线。
+合并后的 main 直接将当前 PR 数据库重分类为开发主库。关闭事件会针对 GitHub 给出的 `merge_commit_sha` 单独构建不可变的开发主镜像，并在构建成功后提升该镜像；因此 squash/rebase 合并也不会把 PR 头提交的镜像误当作 main。迁移 Job 会在同一同步中执行 `migrate up`，避免在 main 镜像尚未发布时回退到静态 Chart 基线。
 
 未合并 PR 关闭或移除标签时，应用镜像和数据库一起切回开发主库。数据库清理采用独立的保留任务；保留窗口为七天，且绝不删除当前 `mainDatabase`。
 
