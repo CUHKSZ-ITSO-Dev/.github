@@ -21,6 +21,7 @@ jobs:
   wait:
     name: 等待 Argo 完成服务发布
     runs-on: ubuntu-latest
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v6
         with:
