@@ -87,14 +87,20 @@ jobs:
         with:
           ref: ${{ inputs.checkout-ref || github.sha }}
           lfs: ${{ inputs.lfs-pull }}
+          persist-credentials: false
 
       - name: 拉取 Git LFS 文件
         if: inputs.lfs-pull
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           LFS_INCLUDE: ${{ inputs.lfs-include }}
           LFS_EXTRA_INCLUDE: ${{ inputs.lfs-extra-include }}
         run: |
           set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           if [ -n "$LFS_INCLUDE" ]; then
             git lfs pull --include="$LFS_INCLUDE"
           else
