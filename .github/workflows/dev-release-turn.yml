@@ -126,6 +126,7 @@ jobs:
             mode=$(yq 'eval(strenv(RELEASE_PATH)).mode // "main"' "$file")
             current=$(yq 'eval(strenv(RELEASE_PATH)).prNumber // ""' "$file")
             export KIND="$kind" PR_NUMBER="$pr" IMAGE_TAG="$image_tag"
+            OPERATION_STARTED_AT="$(date -u +%s)"; export OPERATION_STARTED_AT
             noop=false
 
             if test "$kind" = pr; then
@@ -133,12 +134,12 @@ jobs:
               if test "$mode" = main; then main_tag=$(yq 'eval(strenv(IMAGE_PATH)).tag // ""' "$file"); else main_tag=$(yq 'eval(strenv(RELEASE_PATH)).mainTag // ""' "$file"); fi
               export MAIN_TAG="$main_tag"
               yq -i 'eval(strenv(RELEASE_PATH)).previous = {"imageTag": (eval(strenv(IMAGE_PATH)).tag // ""), "imageTagPresent": (eval(strenv(IMAGE_PATH)).tag != null), "imageDigest": (eval(strenv(IMAGE_PATH)).digest // ""), "imageDigestPresent": (eval(strenv(IMAGE_PATH)).digest != null), "mode": (eval(strenv(RELEASE_PATH)).mode // "main"), "prNumber": (eval(strenv(RELEASE_PATH)).prNumber // ""), "mainTag": (eval(strenv(RELEASE_PATH)).mainTag // "")}' "$file"
-              yq -i 'eval(strenv(IMAGE_PATH)).tag = strenv(IMAGE_TAG) | del(eval(strenv(IMAGE_PATH)).digest) | eval(strenv(IMAGE_PATH)).pullPolicy = "Always" | eval(strenv(RELEASE_PATH)).mainTag = strenv(MAIN_TAG) | eval(strenv(RELEASE_PATH)).mode = "pr" | eval(strenv(RELEASE_PATH)).prNumber = strenv(PR_NUMBER) | eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID)' "$file"
+              yq -i 'eval(strenv(IMAGE_PATH)).tag = strenv(IMAGE_TAG) | del(eval(strenv(IMAGE_PATH)).digest) | eval(strenv(IMAGE_PATH)).pullPolicy = "Always" | eval(strenv(RELEASE_PATH)).mainTag = strenv(MAIN_TAG) | eval(strenv(RELEASE_PATH)).mode = "pr" | eval(strenv(RELEASE_PATH)).prNumber = strenv(PR_NUMBER) | eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID) | eval(strenv(RELEASE_PATH)).operationStartedAt = env(OPERATION_STARTED_AT)' "$file"
             elif test "$kind" = main; then
               test -n "$image_tag" || { echo '主版本票据缺少镜像' >&2; exit 1; }
               if test "$mode" = main || test "$current" = "$pr"; then
                 yq -i 'eval(strenv(RELEASE_PATH)).previous = {"imageTag": (eval(strenv(IMAGE_PATH)).tag // ""), "imageTagPresent": (eval(strenv(IMAGE_PATH)).tag != null), "imageDigest": (eval(strenv(IMAGE_PATH)).digest // ""), "imageDigestPresent": (eval(strenv(IMAGE_PATH)).digest != null), "mode": (eval(strenv(RELEASE_PATH)).mode // "main"), "prNumber": (eval(strenv(RELEASE_PATH)).prNumber // ""), "mainTag": (eval(strenv(RELEASE_PATH)).mainTag // "")}' "$file"
-                yq -i 'eval(strenv(IMAGE_PATH)).tag = strenv(IMAGE_TAG) | del(eval(strenv(IMAGE_PATH)).digest) | eval(strenv(IMAGE_PATH)).pullPolicy = "Always" | eval(strenv(RELEASE_PATH)).mainTag = strenv(IMAGE_TAG) | eval(strenv(RELEASE_PATH)).mode = "main" | eval(strenv(RELEASE_PATH)).prNumber = "" | eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID)' "$file"
+                yq -i 'eval(strenv(IMAGE_PATH)).tag = strenv(IMAGE_TAG) | del(eval(strenv(IMAGE_PATH)).digest) | eval(strenv(IMAGE_PATH)).pullPolicy = "Always" | eval(strenv(RELEASE_PATH)).mainTag = strenv(IMAGE_TAG) | eval(strenv(RELEASE_PATH)).mode = "main" | eval(strenv(RELEASE_PATH)).prNumber = "" | eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID) | eval(strenv(RELEASE_PATH)).operationStartedAt = env(OPERATION_STARTED_AT)' "$file"
               else
                 noop=true
                 yq -i 'eval(strenv(RELEASE_PATH)).mainTag = strenv(IMAGE_TAG)' "$file"
@@ -148,7 +149,7 @@ jobs:
                 main_tag=$(yq 'eval(strenv(RELEASE_PATH)).mainTag // ""' "$file"); export MAIN_TAG="$main_tag"
                 yq -i 'eval(strenv(RELEASE_PATH)).previous = {"imageTag": (eval(strenv(IMAGE_PATH)).tag // ""), "imageTagPresent": (eval(strenv(IMAGE_PATH)).tag != null), "imageDigest": (eval(strenv(IMAGE_PATH)).digest // ""), "imageDigestPresent": (eval(strenv(IMAGE_PATH)).digest != null), "mode": (eval(strenv(RELEASE_PATH)).mode // "main"), "prNumber": (eval(strenv(RELEASE_PATH)).prNumber // ""), "mainTag": (eval(strenv(RELEASE_PATH)).mainTag // "")}' "$file"
                 if test -n "$main_tag"; then yq -i 'eval(strenv(IMAGE_PATH)).tag = strenv(MAIN_TAG)' "$file"; else yq -i 'del(eval(strenv(IMAGE_PATH)).tag)' "$file"; fi
-                yq -i 'del(eval(strenv(IMAGE_PATH)).digest) | eval(strenv(IMAGE_PATH)).pullPolicy = "Always" | eval(strenv(RELEASE_PATH)).mode = "main" | eval(strenv(RELEASE_PATH)).prNumber = "" | eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID)' "$file"
+                yq -i 'del(eval(strenv(IMAGE_PATH)).digest) | eval(strenv(IMAGE_PATH)).pullPolicy = "Always" | eval(strenv(RELEASE_PATH)).mode = "main" | eval(strenv(RELEASE_PATH)).prNumber = "" | eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID) | eval(strenv(RELEASE_PATH)).operationStartedAt = env(OPERATION_STARTED_AT)' "$file"
               else
                 noop=true
               fi
@@ -158,13 +159,13 @@ jobs:
             fi
 
             if test "$noop" = false && test "$SERVICE" = ui-cdn; then
-              yq -i '.uiCdn.releaseLock = {"owner": "ui-cdn", "id": strenv(OPERATION_ID)}' "$file"
+              yq -i '.uiCdn.releaseLock = {"owner": "ui-cdn", "id": strenv(OPERATION_ID), "startedAt": env(OPERATION_STARTED_AT)}' "$file"
             fi
             if test "$noop" = true; then
               FINISHED_AT="$(date -u +%s)"
               RECEIPT_CUTOFF="$(( $(date +%s) - 7 * 24 * 60 * 60 ))"
               export FINISHED_AT RECEIPT_CUTOFF
-              yq -i 'eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID) | eval(strenv(RELEASE_PATH)).completedID = strenv(OPERATION_ID) | eval(strenv(RELEASE_PATH)).completedAt = env(FINISHED_AT) | eval(strenv(RELEASE_PATH)).receipts = (((eval(strenv(RELEASE_PATH)).receipts // []) | map(select((.finishedAt // 0) >= env(RECEIPT_CUTOFF)))) + [{"id": strenv(OPERATION_ID), "status": "succeeded", "result": "noop", "finishedAt": env(FINISHED_AT)}])' "$file"
+              yq -i 'eval(strenv(RELEASE_PATH)).operationID = strenv(OPERATION_ID) | eval(strenv(RELEASE_PATH)).completedID = strenv(OPERATION_ID) | eval(strenv(RELEASE_PATH)).completedAt = env(FINISHED_AT) | del(eval(strenv(RELEASE_PATH)).operationStartedAt) | eval(strenv(RELEASE_PATH)).receipts = (((eval(strenv(RELEASE_PATH)).receipts // []) | map(select((.finishedAt // 0) >= env(RECEIPT_CUTOFF)))) + [{"id": strenv(OPERATION_ID), "status": "succeeded", "result": "noop", "finishedAt": env(FINISHED_AT)}])' "$file"
             fi
             yq -i 'eval(strenv(RELEASE_PATH)).queue |= .[1:]' "$file"
 
