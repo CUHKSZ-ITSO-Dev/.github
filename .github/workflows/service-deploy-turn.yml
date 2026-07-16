@@ -1,0 +1,48 @@
+name: 等待服务发布顺序
+
+on:
+  workflow_call:
+    inputs:
+      workflow-file:
+        description: 调用仓库中需要严格串行的 workflow 文件名
+        required: true
+        type: string
+      poll-seconds:
+        description: 查询更早 workflow run 的间隔
+        required: false
+        type: number
+        default: 15
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  wait:
+    name: 等待更早的服务发布完成
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: 按 run number 等待服务级 FIFO
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_FILE: ${{ inputs.workflow-file }}
+          CURRENT_RUN_NUMBER: ${{ github.run_number }}
+          CURRENT_RUN_ATTEMPT: ${{ github.run_attempt }}
+          POLL_SECONDS: ${{ inputs.poll-seconds }}
+        run: |
+          set -euo pipefail
+          while true; do
+            blockers="$({
+              gh api --paginate \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=100" \
+                --jq ".workflow_runs[] | select(.run_number < (${CURRENT_RUN_NUMBER} | tonumber)) | select(.status == \"queued\" or .status == \"in_progress\" or .status == \"waiting\" or .status == \"pending\" or .status == \"requested\") | [.run_number, .run_attempt, .status, .html_url] | @tsv"
+            } | sort -n -k1,1 -k2,2n)"
+            if test -z "$blockers"; then
+              echo "run ${CURRENT_RUN_NUMBER}.${CURRENT_RUN_ATTEMPT} 已取得服务发布顺序。"
+              exit 0
+            fi
+            echo "等待更早的服务发布："
+            printf '%s\n' "$blockers"
+            sleep "$POLL_SECONDS"
+          done

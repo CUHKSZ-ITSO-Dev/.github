@@ -20,6 +20,7 @@
 | `.github/workflows/pr-dev-version.yml` | 统一生成 PR 开发服发布版本标签，不包含具体部署目标；默认从调用仓库名自动生成小写 slug，格式为 `dev-uniauth-pr-371-49afc8f`，使用环境、仓库 slug、PR 号和 7 位短 SHA。仓库名和服务名不一致时可传入 `repository-slug` 覆盖；保留可选 run 后缀仅用于明确需要绕过缓存或强制重发同一源码版本的特殊场景。 | `UI`、`UniAuth` |
 | `.github/workflows/dev-slot-metadata.yml` | 为单 PR 开发槽位生成稳定数据库名与按文件名排序的迁移清单，用于识别追加迁移与改写历史迁移。 | `Chat`、`UniAuth` |
 | `.github/workflows/dev-slot-wait.yml` | 等待服务独立 Argo 发布单元写回精确操作完成回执，使仓库级并发锁覆盖构建、迁移与 Deployment 健康检查。 | `Chat`、`UniAuth`、`UI` |
+| `.github/workflows/service-deploy-turn.yml` | 按调用 workflow 的 run number 等待更早运行完整结束，为单槽位服务提供不会丢 pending 事件的 FIFO 发布顺序。 | `Chat`、`UniAuth` |
 | `.github/workflows/pr-deploy-eligibility.yml` | 在写入 GitOps 前再次确认 PR 仍开放、SHA 未变化且开发发布标签仍存在，阻止过期构建覆盖开发服。 | 使用开发服标签发布的仓库 |
 | `.github/workflows/docker-build-push.yml` | 统一 Docker 镜像构建与推送流程，由业务仓库传入镜像名、上下文和 Dockerfile；支持按需 checkout 指定 ref，并可在 Git LFS 默认拉取后追加指定 include。 | `Chat`、`UniAuth`、`Gateway`、`open-platform`、`Doubao-Speech-Service`、`WebSearch`、`doc-intelligence`、`rag` |
 | `.github/workflows/ghcr-cleanup-container-versions.yml` | 统一清理 GHCR 容器包旧版本，默认保留最新 5 个版本。 | `doc-intelligence`、`rag` |
