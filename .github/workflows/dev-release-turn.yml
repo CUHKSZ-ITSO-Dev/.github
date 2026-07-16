@@ -91,15 +91,15 @@ jobs:
             active=$(yq 'eval(strenv(RELEASE_PATH)).operationID // ""' "$file")
             completed=$(yq 'eval(strenv(RELEASE_PATH)).completedID // ""' "$file")
             rollback=$(yq 'eval(strenv(RELEASE_PATH)).rollbackPending // false' "$file")
-            if test "$SERVICE" = ui-cdn; then release_lock=$(yq '.uiCdn.releaseLock.id // ""' "$file"); else release_lock=""; fi
-            test "$head" = "$OPERATION_ID" && test "$ready" = true && test "$active" = "$completed" && test "$rollback" != true && test -z "$release_lock" && break
+            if test "$SERVICE" = ui-cdn; then release_lock_owner=$(yq '.uiCdn.releaseLock.owner // ""' "$file"); release_lock_id=$(yq '.uiCdn.releaseLock.id // ""' "$file"); else release_lock_owner=""; release_lock_id=""; fi
+            test "$head" = "$OPERATION_ID" && test "$ready" = true && test "$active" = "$completed" && test "$rollback" != true && test -z "$release_lock_owner" && test -z "$release_lock_id" && break
             sleep 10
           done
           test "$(date +%s)" -lt "$deadline" || { echo "等待 $OPERATION_ID 轮次超时" >&2; exit 1; }
 
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          for attempt in 1 2 3 4 5; do
+          while test "$(date +%s)" -lt "$deadline"; do
             refresh
             count=$(yq '[eval(strenv(RELEASE_PATH)).queue[]? | select(.id == strenv(OPERATION_ID))] | length' "$file")
             if test "$count" = 0; then
@@ -107,13 +107,18 @@ jobs:
               echo "激活前票据 $OPERATION_ID 丢失" >&2
               exit 1
             fi
+            created=$(yq '(eval(strenv(RELEASE_PATH)).queue[] | select(.id == strenv(OPERATION_ID)) | .createdAt) // 0' "$file")
+            if test "$created" -le $(( $(date +%s) - TICKET_TTL_SECONDS )); then
+              echo "激活前票据 $OPERATION_ID 已过期" >&2
+              exit 1
+            fi
             head=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].id // ""' "$file")
             ready=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].ready // false' "$file")
             active=$(yq 'eval(strenv(RELEASE_PATH)).operationID // ""' "$file")
             completed=$(yq 'eval(strenv(RELEASE_PATH)).completedID // ""' "$file")
             rollback=$(yq 'eval(strenv(RELEASE_PATH)).rollbackPending // false' "$file")
-            if test "$SERVICE" = ui-cdn; then release_lock=$(yq '.uiCdn.releaseLock.id // ""' "$file"); else release_lock=""; fi
-            test "$head" = "$OPERATION_ID" && test "$ready" = true && test "$active" = "$completed" && test "$rollback" != true && test -z "$release_lock" || { sleep $(( attempt * 2 )); continue; }
+            if test "$SERVICE" = ui-cdn; then release_lock_owner=$(yq '.uiCdn.releaseLock.owner // ""' "$file"); release_lock_id=$(yq '.uiCdn.releaseLock.id // ""' "$file"); else release_lock_owner=""; release_lock_id=""; fi
+            test "$head" = "$OPERATION_ID" && test "$ready" = true && test "$active" = "$completed" && test "$rollback" != true && test -z "$release_lock_owner" && test -z "$release_lock_id" || { sleep 10; continue; }
 
             kind=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].kind' "$file")
             pr=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].prNumber // ""' "$file")
@@ -167,7 +172,7 @@ jobs:
             git diff --cached --quiet && { echo "激活 $OPERATION_ID 未产生 GitOps 变更" >&2; exit 1; }
             git commit -m "chore(dev): 激活 $SERVICE 发布 $OPERATION_ID"
             git push origin HEAD:main && exit 0
-            sleep $(( attempt * 2 ))
+            sleep 10
           done
-          echo "原子激活 $OPERATION_ID 失败" >&2
+          echo "原子激活 $OPERATION_ID 超时" >&2
           exit 1
