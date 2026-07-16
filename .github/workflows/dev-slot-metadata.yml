@@ -12,6 +12,9 @@ on:
       commit-sha:
         required: true
         type: string
+      base-sha:
+        required: true
+        type: string
       migration-directory:
         required: true
         type: string
@@ -22,6 +25,8 @@ on:
         value: ${{ jobs.metadata.outputs.manifest-sha256 }}
       migration-manifest:
         value: ${{ jobs.metadata.outputs.migration-manifest }}
+      has-migration-changes:
+        value: ${{ jobs.metadata.outputs.has-migration-changes }}
 
 jobs:
   metadata:
@@ -30,14 +35,18 @@ jobs:
       database-name: ${{ steps.metadata.outputs.database-name }}
       manifest-sha256: ${{ steps.metadata.outputs.manifest-sha256 }}
       migration-manifest: ${{ steps.metadata.outputs.migration-manifest }}
+      has-migration-changes: ${{ steps.metadata.outputs.has-migration-changes }}
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.commit-sha }}
+          fetch-depth: 0
       - id: metadata
         env:
           SERVICE: ${{ inputs.service }}
           PR_NUMBER: ${{ inputs.pr-number }}
+          BASE_SHA: ${{ inputs.base-sha }}
+          COMMIT_SHA: ${{ inputs.commit-sha }}
           MIGRATION_DIRECTORY: ${{ inputs.migration-directory }}
         run: |
           set -euo pipefail
@@ -46,6 +55,12 @@ jobs:
             *) echo "不支持的开发槽位服务: $SERVICE" >&2; exit 1 ;;
           esac
           test -d "$MIGRATION_DIRECTORY"
+          git cat-file -e "${BASE_SHA}^{commit}"
+          if git diff --quiet "$BASE_SHA" "$COMMIT_SHA" -- "$MIGRATION_DIRECTORY"; then
+            has_migration_changes=false
+          else
+            has_migration_changes=true
+          fi
           database_name="${SERVICE}_pr_${PR_NUMBER}"
           manifest_entries=$(find "$MIGRATION_DIRECTORY" -maxdepth 1 -type f -name '*.up.sql' -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 | awk '{printf "%s:%s,", $2, $1}')
           manifest=$(printf '%s' "$manifest_entries" | shasum -a 256 | awk '{print $1}')
@@ -53,4 +68,5 @@ jobs:
             echo "database-name=$database_name"
             echo "manifest-sha256=$manifest"
             echo "migration-manifest=$manifest_entries"
+            echo "has-migration-changes=$has_migration_changes"
           } >> "$GITHUB_OUTPUT"
