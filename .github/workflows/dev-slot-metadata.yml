@@ -76,12 +76,6 @@ jobs:
             echo "PR 未包含当前 main；请先合入最新 main，再部署到共享开发主库。" >&2
             exit 1
           fi
-          merge_base=$(git merge-base "$BASE_SHA" "$COMMIT_SHA")
-          if git diff --quiet "$merge_base" "$COMMIT_SHA" -- "$MIGRATION_DIRECTORY"; then
-            has_migration_changes=false
-          else
-            has_migration_changes=true
-          fi
           database_name="${SERVICE}_pr_${PR_NUMBER}"
           manifest_entries=$(find "$MIGRATION_DIRECTORY" -maxdepth 1 -type f \( -name '*.up.sql' -o -name '*.down.sql' \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 | awk '{printf "%s:%s,", $2, $1}')
           base_manifest_entries=$(
@@ -96,6 +90,11 @@ jobs:
                 esac
               done
           )
+          if test "$manifest_entries" = "$base_manifest_entries"; then
+            has_migration_changes=false
+          else
+            has_migration_changes=true
+          fi
           migration_history_rewritten=false
           if test "$has_migration_changes" = true; then
             case "$manifest_entries" in
