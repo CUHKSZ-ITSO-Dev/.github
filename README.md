@@ -38,4 +38,6 @@
 
 generic ticket 写在 `<serviceRoot>.devRelease.queue[]`，固定字段为 `id`、单调的 GitHub Actions `run_id` 数字 `sequence`、`kind` (`pr|main|restore`)、字符串 `prNumber`、Unix 秒 `createdAt`、`ready` 和 `imageTag`。并发 reserve 后按 `sequence/createdAt/id` 排序，不能把抢到 Git push 的先后当作 FIFO。所有事件都必须在构建前 reserve，只有制品就绪后才置 `ready=true`；构建、ready 或 turn 失败会立即移除未激活票据并写 failed receipt，不等 4 小时过期。turn 只在票据到达队首、前一 `operationID == completedID` 且不在 rollback 时激活；激活前写入 `previous` 镜像 tag/digest 存在性与槽位状态，Argo SyncFail 时按该快照回滚。
 
+`latestRunID/latestRunAttempt` 是已激活水位，`latestSeenRunID/latestSeenRunAttempt` 是已 reserve 水位。首次执行仍严格按 `run_id` FIFO；`run_attempt > 1` 的 rerun 在 reserve 和 activation 两处都必须不落后于已见水位，防止旧 PR 或旧 merged-main run 重放后把开发服回退。PR 制品进入 ready 前还必须重新核对 PR 仍为 open、head SHA 未变且标签仍在。
+
 未激活 ticket 保留 4 小时，receipts 保留 7 天；`previous` 保留最近一次真实切换的回滚快照，并在下一次激活时更新。调用方只以 receipts 的 `succeeded|failed|stale|expired` 为终态，不把 GitOps 提交成功或单独 `completedID` 变化当作部署成功。

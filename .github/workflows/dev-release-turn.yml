@@ -123,6 +123,25 @@ jobs:
             kind=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].kind' "$file")
             pr=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].prNumber // ""' "$file")
             image_tag=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].imageTag // ""' "$file")
+            run_id=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].runID // eval(strenv(RELEASE_PATH)).queue[0].sequence // 0' "$file")
+            run_attempt=$(yq 'eval(strenv(RELEASE_PATH)).queue[0].runAttempt // 1' "$file")
+            latest_run=$(yq 'eval(strenv(RELEASE_PATH)).latestRunID // 0' "$file")
+            latest_attempt=$(yq 'eval(strenv(RELEASE_PATH)).latestRunAttempt // 0' "$file")
+            seen_run=$(yq 'eval(strenv(RELEASE_PATH)).latestSeenRunID // eval(strenv(RELEASE_PATH)).latestRunID // 0' "$file")
+            seen_attempt=$(yq 'eval(strenv(RELEASE_PATH)).latestSeenRunAttempt // eval(strenv(RELEASE_PATH)).latestRunAttempt // 0' "$file")
+            if test "$run_id" -lt "$latest_run" || { test "$run_id" -eq "$latest_run" && test "$run_attempt" -le "$latest_attempt"; } || { test "$run_attempt" -gt 1 && { test "$run_id" -lt "$seen_run" || { test "$run_id" -eq "$seen_run" && test "$run_attempt" -lt "$seen_attempt"; }; }; }; then
+              FINISHED_AT="$(date -u +%s)"
+              RECEIPT_CUTOFF="$(( $(date +%s) - 7 * 24 * 60 * 60 ))"
+              export FINISHED_AT RECEIPT_CUTOFF
+              yq -i 'eval(strenv(RELEASE_PATH)).queue |= .[1:] | eval(strenv(RELEASE_PATH)).receipts = (((eval(strenv(RELEASE_PATH)).receipts // []) | map(select((.finishedAt // 0) >= env(RECEIPT_CUTOFF) and .id != strenv(OPERATION_ID)))) + [{"id": strenv(OPERATION_ID), "status": "stale", "result": "superseded", "finishedAt": env(FINISHED_AT)}])' "$file"
+              git add "$file"
+              git commit -m "chore(dev): 拒绝过期 $SERVICE 发布 $OPERATION_ID"
+              git push origin HEAD:main && exit 0
+              sleep 10
+              continue
+            fi
+            export RUN_ID="$run_id" RUN_ATTEMPT="$run_attempt"
+            yq -i 'eval(strenv(RELEASE_PATH)).latestRunID = env(RUN_ID) | eval(strenv(RELEASE_PATH)).latestRunAttempt = env(RUN_ATTEMPT)' "$file"
             mode=$(yq 'eval(strenv(RELEASE_PATH)).mode // "main"' "$file")
             current=$(yq 'eval(strenv(RELEASE_PATH)).prNumber // ""' "$file")
             export KIND="$kind" PR_NUMBER="$pr" IMAGE_TAG="$image_tag"

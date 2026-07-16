@@ -27,16 +27,55 @@ on:
         required: false
         type: string
         default: ""
+      commit-sha:
+        description: PR 票据 ready 时必须仍与该提交一致
+        required: false
+        type: string
+        default: ""
+      label:
+        required: false
+        type: string
+        default: auto-deploy-to-dev-server
     secrets:
       deploy-key:
         required: true
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  verify-pr:
+    name: 发布前复核 PR 状态
+    if: inputs.phase == 'ready' && inputs.kind == 'pr'
+    runs-on: ubuntu-latest
+    outputs:
+      eligible: ${{ steps.check.outputs.eligible }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          EXPECTED_SHA: ${{ inputs.commit-sha }}
+          REQUIRED_LABEL: ${{ inputs.label }}
+        run: |
+          set -euo pipefail
+          echo 'eligible=false' >> "$GITHUB_OUTPUT"
+          test -n "$EXPECTED_SHA" || { echo 'PR ready 缺少预期提交' >&2; exit 1; }
+          payload=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")
+          state=$(jq -r '.state' <<<"$payload")
+          sha=$(jq -r '.head.sha' <<<"$payload")
+          labelled=$(jq -r --arg label "$REQUIRED_LABEL" '[.labels[].name] | index($label) != null' <<<"$payload")
+          if test "$state" = open && test "$sha" = "$EXPECTED_SHA" && test "$labelled" = true; then
+            echo 'eligible=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "PR #$PR_NUMBER 已关闭、提交已变化或标签已移除，拒绝将旧制品标记为 ready" >&2
+          fi
+
   ticket:
     name: ${{ inputs.phase == 'reserve' && '预留开发发布顺序' || '标记开发发布就绪' }}
+    needs: verify-pr
+    if: always() && (needs.verify-pr.result == 'success' || needs.verify-pr.result == 'skipped')
     uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/gitops-yq-script-bump.yml@main
     with:
       repository: CUHKSZ-ITSO-Dev/Cluster
@@ -52,16 +91,37 @@ jobs:
           *) echo '不支持的开发发布服务' >&2; exit 1 ;;
         esac
         export RELEASE_PATH="$release_path" OPERATION_ID='${{ inputs.operation-id }}'
+        export RUN_ID='${{ inputs.sequence }}' RUN_ATTEMPT="${OPERATION_ID##*-}"
+        case "$RUN_ATTEMPT" in ''|*[!0-9]*) echo 'operation-id 缺少合法 run_attempt' >&2; exit 1 ;; esac
         phase='${{ inputs.phase }}'
         if test "$phase" = reserve; then
           case '${{ inputs.kind }}' in pr|main|restore) ;; *) echo '非法票据类型' >&2; exit 1 ;; esac
           exists=$(yq '[eval(strenv(RELEASE_PATH)).queue[]? | select(.id == strenv(OPERATION_ID))] | length' "$file")
           test "$exists" = 0 || exit 0
-          export KIND='${{ inputs.kind }}' PR_NUMBER='${{ inputs.pr-number }}' SEQUENCE='${{ inputs.sequence }}' CREATED_AT="$(date -u +%s)"
-          yq -i 'eval(strenv(RELEASE_PATH)).queue = (((eval(strenv(RELEASE_PATH)).queue // []) + [{"id": strenv(OPERATION_ID), "sequence": env(SEQUENCE), "kind": strenv(KIND), "prNumber": strenv(PR_NUMBER), "createdAt": env(CREATED_AT), "ready": false, "imageTag": ""}]) | sort_by(.sequence, .createdAt, .id))' "$file"
+          latest_run=$(yq 'eval(strenv(RELEASE_PATH)).latestRunID // 0' "$file")
+          latest_attempt=$(yq 'eval(strenv(RELEASE_PATH)).latestRunAttempt // 0' "$file")
+          seen_run=$(yq 'eval(strenv(RELEASE_PATH)).latestSeenRunID // eval(strenv(RELEASE_PATH)).latestRunID // 0' "$file")
+          seen_attempt=$(yq 'eval(strenv(RELEASE_PATH)).latestSeenRunAttempt // eval(strenv(RELEASE_PATH)).latestRunAttempt // 0' "$file")
+          if test "$RUN_ID" -lt "$latest_run" || { test "$RUN_ID" -eq "$latest_run" && test "$RUN_ATTEMPT" -le "$latest_attempt"; } || { test "$RUN_ATTEMPT" -gt 1 && { test "$RUN_ID" -lt "$seen_run" || { test "$RUN_ID" -eq "$seen_run" && test "$RUN_ATTEMPT" -le "$seen_attempt"; }; }; }; then
+            export FINISHED_AT="$(date -u +%s)" RECEIPT_CUTOFF="$(( $(date +%s) - 7 * 24 * 60 * 60 ))"
+            yq -i 'eval(strenv(RELEASE_PATH)).receipts = (((eval(strenv(RELEASE_PATH)).receipts // []) | map(select((.finishedAt // 0) >= env(RECEIPT_CUTOFF) and .id != strenv(OPERATION_ID)))) + [{"id": strenv(OPERATION_ID), "status": "stale", "result": "superseded", "finishedAt": env(FINISHED_AT)}])' "$file"
+            exit 0
+          fi
+          if test "$RUN_ID" -gt "$seen_run" || { test "$RUN_ID" -eq "$seen_run" && test "$RUN_ATTEMPT" -gt "$seen_attempt"; }; then
+            yq -i 'eval(strenv(RELEASE_PATH)).latestSeenRunID = env(RUN_ID) | eval(strenv(RELEASE_PATH)).latestSeenRunAttempt = env(RUN_ATTEMPT)' "$file"
+          fi
+          export KIND='${{ inputs.kind }}' PR_NUMBER='${{ inputs.pr-number }}' SEQUENCE="$RUN_ID" CREATED_AT="$(date -u +%s)"
+          yq -i 'eval(strenv(RELEASE_PATH)).queue = (((eval(strenv(RELEASE_PATH)).queue // []) + [{"id": strenv(OPERATION_ID), "sequence": env(SEQUENCE), "runID": env(RUN_ID), "runAttempt": env(RUN_ATTEMPT), "kind": strenv(KIND), "prNumber": strenv(PR_NUMBER), "createdAt": env(CREATED_AT), "ready": false, "imageTag": ""}]) | sort_by(.sequence, .runAttempt, .createdAt, .id))' "$file"
         elif test "$phase" = ready; then
           index=$(yq '(eval(strenv(RELEASE_PATH)).queue // [] | to_entries | map(select(.value.id == strenv(OPERATION_ID))) | .[0].key) // ""' "$file")
           test -n "$index" || { echo '开发发布票据不存在' >&2; exit 1; }
+          if test '${{ inputs.kind }}' = pr && test '${{ needs.verify-pr.outputs.eligible }}' != true; then
+            FINISHED_AT="$(date -u +%s)"
+            RECEIPT_CUTOFF="$(( $(date +%s) - 7 * 24 * 60 * 60 ))"
+            export INDEX FINISHED_AT RECEIPT_CUTOFF
+            yq -i 'del(eval(strenv(RELEASE_PATH)).queue[env(INDEX)]) | eval(strenv(RELEASE_PATH)).receipts = (((eval(strenv(RELEASE_PATH)).receipts // []) | map(select((.finishedAt // 0) >= env(RECEIPT_CUTOFF) and .id != strenv(OPERATION_ID)))) + [{"id": strenv(OPERATION_ID), "status": "stale", "result": "ineligible", "finishedAt": env(FINISHED_AT)}])' "$file"
+            exit 0
+          fi
           export INDEX="$index" IMAGE_TAG='${{ inputs.image-tag }}'
           yq -i 'eval(strenv(RELEASE_PATH)).queue[env(INDEX)].imageTag = strenv(IMAGE_TAG) | eval(strenv(RELEASE_PATH)).queue[env(INDEX)].ready = true' "$file"
         elif test "$phase" = fail; then
