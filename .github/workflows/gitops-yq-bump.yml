@@ -79,25 +79,31 @@ jobs:
         env:
           COMMIT_MESSAGE: ${{ inputs.commit-message }}
           REF: ${{ inputs.ref }}
+          VALUES_FILE: ${{ inputs.values-file }}
+          YQ_EXPRESSION: ${{ inputs.yq-expression }}
         run: |
           set -euo pipefail
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add .
-          if git diff --cached --quiet; then
-            echo "目标文件未变化，跳过提交。"
-            exit 0
-          fi
-
-          git commit -m "$COMMIT_MESSAGE"
           for i in 1 2 3 4 5; do
-            if git pull --rebase origin "$REF" && git push origin "HEAD:${REF}"; then
+            git add "$VALUES_FILE"
+            if git diff --cached --quiet; then
+              echo "目标文件未变化，跳过提交。"
+              exit 0
+            fi
+            git commit -m "$COMMIT_MESSAGE"
+            if git push origin "HEAD:${REF}"; then
               echo "pushed on attempt ${i}"
               exit 0
             fi
-            echo "push 冲突，重试 ${i}/5"
+            # 多个 PR 会改同一 values 文件。rebase 会在相同行产生冲突且无法保留
+            # 后一个槽位意图；改为从远端最新值重新执行 yq，使本次意图原子覆盖其字段。
+            echo "push 冲突，重新拉取并重放 yq 意图（${i}/5）"
+            git fetch origin "$REF"
+            git reset --hard "origin/${REF}"
+            yq -i "$YQ_EXPRESSION" "$VALUES_FILE"
             sleep $((RANDOM % 5 + 2))
           done
 
-          echo "rebase-retry 后仍 push 失败" >&2
+          echo "重放 yq 意图五次后仍无法 push" >&2
           exit 1

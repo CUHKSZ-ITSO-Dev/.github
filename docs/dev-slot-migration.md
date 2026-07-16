@@ -15,6 +15,7 @@ active:
   sha: <镜像对应 commit>
   database: <实际数据库名>
   mainDatabase: <当前开发主库；可由已合并 PR 重分类而来>
+  mainImageTag: <与开发主库匹配的不可变镜像标签>
   configDatabase: <Secret 中的原始数据库名，用于渲染运行时配置>
   migrationManifest: <按文件名排序的 up 文件+SHA-256 序列>
 ```

@@ -75,25 +75,29 @@ jobs:
         env:
           COMMIT_MESSAGE: ${{ inputs.commit-message }}
           REF: ${{ inputs.ref }}
+          UPDATE_SCRIPT: ${{ inputs.update-script }}
         run: |
           set -euo pipefail
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add .
-          if git diff --cached --quiet; then
-            echo "目标文件未变化，跳过提交。"
-            exit 0
-          fi
-
-          git commit -m "$COMMIT_MESSAGE"
           for i in 1 2 3 4 5; do
-            if git pull --rebase origin "$REF" && git push origin "HEAD:${REF}"; then
+            git add .
+            if git diff --cached --quiet; then
+              echo "目标文件未变化，跳过提交。"
+              exit 0
+            fi
+            git commit -m "$COMMIT_MESSAGE"
+            if git push origin "HEAD:${REF}"; then
               echo "pushed on attempt ${i}"
               exit 0
             fi
-            echo "push 冲突，重试 ${i}/5"
+            # 从远端干净基线重新执行脚本，避免同一 YAML 的 rebase 冲突卡住重试。
+            echo "push 冲突，重新拉取并重放更新脚本（${i}/5）"
+            git fetch origin "$REF"
+            git reset --hard "origin/${REF}"
+            bash -euo pipefail <<< "$UPDATE_SCRIPT"
             sleep $((RANDOM % 5 + 2))
           done
 
-          echo "rebase-retry 后仍 push 失败" >&2
+          echo "重放更新脚本五次后仍无法 push" >&2
           exit 1
