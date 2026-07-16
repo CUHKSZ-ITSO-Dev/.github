@@ -15,6 +15,10 @@ on:
       version-tag:
         required: true
         type: string
+      checkout-ref:
+        required: false
+        type: string
+        default: ""
       working-directory:
         required: false
         type: string
@@ -99,6 +103,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout-ref || github.sha }}
 
       - name: 安装 pnpm
         if: inputs.pnpm-version == ''

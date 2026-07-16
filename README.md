@@ -18,6 +18,7 @@
 | `.github/workflows/python-uv-redis-rabbitmq-check.yml` | 统一带 Redis / RabbitMQ 服务的 Python uv 集成检查。 | `doc-intelligence` |
 | `.github/workflows/migration-check.yml` | 统一 PostgreSQL / SQL Server 迁移检查，默认保护历史迁移不可修改或删除。 | `Chat`、`open-platform`、`UniAuth` |
 | `.github/workflows/pr-dev-version.yml` | 统一生成 PR 开发服发布版本标签，不包含具体部署目标；默认从调用仓库名自动生成小写 slug，格式为 `dev-uniauth-pr-371-49afc8f`，使用环境、仓库 slug、PR 号和 7 位短 SHA。仓库名和服务名不一致时可传入 `repository-slug` 覆盖；保留可选 run 后缀仅用于明确需要绕过缓存或强制重发同一源码版本的特殊场景。 | `UI`、`UniAuth` |
+| `.github/workflows/dev-slot-metadata.yml` | 为单 PR 开发槽位生成稳定数据库名与按文件名排序的迁移清单，用于识别追加迁移与改写历史迁移。 | `Chat`、`UniAuth` |
 | `.github/workflows/docker-build-push.yml` | 统一 Docker 镜像构建与推送流程，由业务仓库传入镜像名、上下文和 Dockerfile；支持按需 checkout 指定 ref，并可在 Git LFS 默认拉取后追加指定 include。 | `Chat`、`UniAuth`、`Gateway`、`open-platform`、`Doubao-Speech-Service`、`WebSearch`、`doc-intelligence`、`rag` |
 | `.github/workflows/ghcr-cleanup-container-versions.yml` | 统一清理 GHCR 容器包旧版本，默认保留最新 5 个版本。 | `doc-intelligence`、`rag` |
 | `.github/workflows/frontend-docker-build-push.yml` | 统一前端构建后再构建 Docker 镜像的流程，用于 Dockerfile 依赖预构建静态目录的项目；支持按需生成同源 `version-data.json`，字段包含版本、完整提交 SHA、提交链接、构建时间、拉取请求和拉取请求链接。版本页状态由 Gateway 聚合时统一判断。 | `UniAuth` |

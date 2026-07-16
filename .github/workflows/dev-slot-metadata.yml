@@ -1,0 +1,56 @@
+name: 开发槽位元数据
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      pr-number:
+        required: true
+        type: string
+      commit-sha:
+        required: true
+        type: string
+      migration-directory:
+        required: true
+        type: string
+    outputs:
+      database-name:
+        value: ${{ jobs.metadata.outputs.database-name }}
+      manifest-sha256:
+        value: ${{ jobs.metadata.outputs.manifest-sha256 }}
+      migration-manifest:
+        value: ${{ jobs.metadata.outputs.migration-manifest }}
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      database-name: ${{ steps.metadata.outputs.database-name }}
+      manifest-sha256: ${{ steps.metadata.outputs.manifest-sha256 }}
+      migration-manifest: ${{ steps.metadata.outputs.migration-manifest }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit-sha }}
+      - id: metadata
+        env:
+          SERVICE: ${{ inputs.service }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          MIGRATION_DIRECTORY: ${{ inputs.migration-directory }}
+        run: |
+          set -euo pipefail
+          case "$SERVICE" in
+            chat|uniauth) ;;
+            *) echo "不支持的开发槽位服务: $SERVICE" >&2; exit 1 ;;
+          esac
+          test -d "$MIGRATION_DIRECTORY"
+          database_name="${SERVICE}_pr_${PR_NUMBER}"
+          manifest_entries=$(find "$MIGRATION_DIRECTORY" -maxdepth 1 -type f -name '*.up.sql' -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 | awk '{printf "%s:%s,", $2, $1}')
+          manifest=$(printf '%s' "$manifest_entries" | shasum -a 256 | awk '{print $1}')
+          {
+            echo "database-name=$database_name"
+            echo "manifest-sha256=$manifest"
+            echo "migration-manifest=$manifest_entries"
+          } >> "$GITHUB_OUTPUT"
