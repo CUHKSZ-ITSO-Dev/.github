@@ -27,6 +27,8 @@ on:
         value: ${{ jobs.metadata.outputs.migration-manifest }}
       has-migration-changes:
         value: ${{ jobs.metadata.outputs.has-migration-changes }}
+      migration-history-rewritten:
+        value: ${{ jobs.metadata.outputs.migration-history-rewritten }}
 
 jobs:
   metadata:
@@ -36,6 +38,7 @@ jobs:
       manifest-sha256: ${{ steps.metadata.outputs.manifest-sha256 }}
       migration-manifest: ${{ steps.metadata.outputs.migration-manifest }}
       has-migration-changes: ${{ steps.metadata.outputs.has-migration-changes }}
+      migration-history-rewritten: ${{ steps.metadata.outputs.migration-history-rewritten }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -55,6 +58,19 @@ jobs:
             *) echo "不支持的开发槽位服务: $SERVICE" >&2; exit 1 ;;
           esac
           test -d "$MIGRATION_DIRECTORY"
+          while IFS= read -r file; do
+            name=${file##*/}
+            case "$name" in
+              *[!A-Za-z0-9_.-]*|'')
+                echo "迁移文件名包含不安全字符: $file" >&2
+                exit 1
+                ;;
+            esac
+            case "$name" in
+              [0-9][0-9][0-9][0-9][0-9][0-9]_*.up.sql|[0-9][0-9][0-9][0-9][0-9][0-9]_*.down.sql) ;;
+              *) echo "迁移文件名不符合版本约定: $file" >&2; exit 1 ;;
+            esac
+          done < <(find "$MIGRATION_DIRECTORY" -maxdepth 1 -type f \( -name '*.up.sql' -o -name '*.down.sql' \) | LC_ALL=C sort)
           git cat-file -e "${BASE_SHA}^{commit}"
           if ! git merge-base --is-ancestor "$BASE_SHA" "$COMMIT_SHA"; then
             echo "PR 未包含当前 main；请先合入最新 main，再部署到共享开发主库。" >&2
@@ -68,10 +84,30 @@ jobs:
           fi
           database_name="${SERVICE}_pr_${PR_NUMBER}"
           manifest_entries=$(find "$MIGRATION_DIRECTORY" -maxdepth 1 -type f \( -name '*.up.sql' -o -name '*.down.sql' \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 | awk '{printf "%s:%s,", $2, $1}')
+          base_manifest_entries=$(
+            git ls-tree -r --name-only "$BASE_SHA" -- "$MIGRATION_DIRECTORY" |
+              LC_ALL=C sort |
+              while IFS= read -r file; do
+                case "$file" in
+                  *.up.sql|*.down.sql)
+                    hash=$(git show "$BASE_SHA:$file" | shasum -a 256 | awk '{print $1}')
+                    printf '%s:%s,' "$file" "$hash"
+                    ;;
+                esac
+              done
+          )
+          migration_history_rewritten=false
+          if test "$has_migration_changes" = true; then
+            case "$manifest_entries" in
+              "$base_manifest_entries"*) ;;
+              *) migration_history_rewritten=true ;;
+            esac
+          fi
           manifest=$(printf '%s' "$manifest_entries" | shasum -a 256 | awk '{print $1}')
           {
             echo "database-name=$database_name"
             echo "manifest-sha256=$manifest"
             echo "migration-manifest=$manifest_entries"
             echo "has-migration-changes=$has_migration_changes"
+            echo "migration-history-rewritten=$migration_history_rewritten"
           } >> "$GITHUB_OUTPUT"
