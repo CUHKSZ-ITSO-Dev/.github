@@ -1,0 +1,61 @@
+name: 等待开发槽位操作完成
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      operation-id:
+        required: true
+        type: string
+      timeout-seconds:
+        required: false
+        type: number
+        default: 1800
+    secrets:
+      deploy-key:
+        required: true
+
+jobs:
+  wait:
+    name: 等待 Argo 完成服务发布
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: CUHKSZ-ITSO-Dev/Cluster
+          ssh-key: ${{ secrets.deploy-key }}
+          fetch-depth: 1
+          path: cluster
+
+      - name: 安装 yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.45.4/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: 等待完成回执
+        env:
+          SERVICE: ${{ inputs.service }}
+          OPERATION_ID: ${{ inputs.operation-id }}
+          TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+        run: |
+          set -euo pipefail
+          case "$SERVICE" in
+            chat) expression='.chatBackend.devSlot.operation.completedID // ""' ;;
+            uniauth) expression='.uniauth.devSlot.operation.completedID // ""' ;;
+            ui) expression='.uiBuilder.completedOperationID // ""' ;;
+            *) echo "不支持的开发发布服务: $SERVICE" >&2; exit 1 ;;
+          esac
+          deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+          while test "$(date +%s)" -lt "$deadline"; do
+            git -C cluster fetch --quiet origin main
+            completed=$(git -C cluster show origin/main:gpt-platform-env/dev/values.yaml | yq "$expression")
+            if test "$completed" = "$OPERATION_ID"; then
+              echo "开发发布操作 $OPERATION_ID 已完成。"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "等待开发发布操作 $OPERATION_ID 超时；Argo Job 或 Deployment 未完成。" >&2
+          exit 1
