@@ -36,15 +36,15 @@ jobs:
       ref: main
       update-script: |
         case '${{ inputs.service }}' in
-          chat) file=gpt-platform-env/dev/units/chat.yaml; slot_path=.chatBackend.devSlot ;;
-          uniauth) file=gpt-platform-env/dev/units/uniauth.yaml; slot_path=.uniauth.devSlot ;;
+          chat) file=gpt-platform-env/dev/units/chat.yaml; queue_path=.chatBackend.devSlot.queue ;;
+          uniauth) file=gpt-platform-env/dev/units/uniauth.yaml; queue_path=.uniauth.devSlot.queue ;;
           *) echo "不支持的 devSlot 服务: ${{ inputs.service }}" >&2; exit 1 ;;
         esac
         export OPERATION_ID='${{ inputs.operation-id }}'
-        index=$(yq '(eval(strenv(slot_path)).queue | to_entries | map(select(.value.id == strenv(OPERATION_ID))) | .[0].key) // ""' "$file")
+        index=$(yq "${queue_path} | to_entries | map(select(.value.id == strenv(OPERATION_ID))) | (select(length > 0) | .[0].key) // \"\"" "$file")
         test -n "$index" || { echo "恢复票号 $OPERATION_ID 不存在" >&2; exit 1; }
         export INDEX="$index"
-        yq -i 'eval(strenv(slot_path)).queue[env(INDEX)].ready = true' "$file"
+        yq -i "${queue_path}[env(INDEX)].ready = true" "$file"
       commit-message: "chore(dev): 标记 ${{ inputs.service }} 恢复票号就绪 ${{ inputs.operation-id }}"
     secrets:
       deploy-key: ${{ secrets.deploy-key }}
