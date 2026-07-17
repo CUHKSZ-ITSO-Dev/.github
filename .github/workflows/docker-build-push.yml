@@ -135,6 +135,7 @@ jobs:
               if [ "$SEMVER_TAGS" = "true" ]; then
                 echo "type=semver,pattern=v{{major}},enable=${{ github.event_name == 'push' }}"
                 echo "type=semver,pattern=v{{major}}.{{minor}},enable=${{ github.event_name == 'push' }}"
+                echo "type=raw,value=latest,enable=${{ github.event_name == 'push' }}"
               fi
             fi
             echo "EOF"
