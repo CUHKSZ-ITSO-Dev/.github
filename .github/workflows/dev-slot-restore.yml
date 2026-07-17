@@ -20,47 +20,16 @@ on:
         required: false
         type: number
         default: 18000
-      label:
-        description: 触发部署的标签名
-        required: false
-        type: string
-        default: auto-deploy-to-dev-server
     secrets:
       deploy-key:
         required: true
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
-  verify-release-pr:
-    name: 确认 PR 仍应释放槽位
-    runs-on: ubuntu-latest
-    outputs:
-      eligible: ${{ steps.check.outputs.eligible }}
-    steps:
-      - id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pr-number }}
-          REQUIRED_LABEL: ${{ inputs.label }}
-        run: |
-          set -euo pipefail
-          payload="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
-          state="$(jq -r '.state' <<<"$payload")"
-          labelled="$(jq -r --arg label "$REQUIRED_LABEL" '[.labels[].name] | index($label) != null' <<<"$payload")"
-          # PR 已关闭或标签已移除 → eligible=true（应该释放槽位）
-          if test "$state" = closed || test "$labelled" != true; then
-            echo "eligible=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "eligible=false" >> "$GITHUB_OUTPUT"
-          fi
-
   restore-slot:
     name: 标记恢复票号就绪
-    needs: verify-release-pr
-    if: needs.verify-release-pr.outputs.eligible == 'true'
     uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/gitops-yq-script-bump.yml@main
     with:
       repository: CUHKSZ-ITSO-Dev/Cluster
@@ -75,45 +44,18 @@ jobs:
         index=$(yq '(eval(strenv(slot_path)).queue | to_entries | map(select(.value.id == strenv(OPERATION_ID))) | .[0].key) // ""' "$file")
         test -n "$index" || { echo "恢复票号 $OPERATION_ID 不存在" >&2; exit 1; }
         export INDEX="$index"
-        # 只标记 ready=true，实际回退由 Cluster 模板的 dispatch Job 处理
-        # dispatch Job 会检查 prNumber 是否匹配，不匹配时走 noop，避免误回退其他 PR
         yq -i 'eval(strenv(slot_path)).queue[env(INDEX)].ready = true' "$file"
-      print-script: >-
-        case '${{ inputs.service }}' in
-          chat) yq '{"image": .chatBackend.backend.image, "slot": .chatBackend.devSlot}' gpt-platform-env/dev/units/chat.yaml ;;
-          uniauth) yq '{"gf": .uniauth.gf.image, "admin": .uniauth.admin.image, "slot": .uniauth.devSlot}' gpt-platform-env/dev/units/uniauth.yaml ;;
-        esac
       commit-message: "chore(dev): 标记 ${{ inputs.service }} 恢复票号就绪 ${{ inputs.operation-id }}"
     secrets:
       deploy-key: ${{ secrets.deploy-key }}
 
   wait-restore-deployment:
-    name: 等待 ${{ inputs.service }} 主槽恢复完成
+    name: 等待主槽恢复完成
     needs: restore-slot
     uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/dev-slot-wait.yml@main
     with:
       service: ${{ inputs.service }}
       operation-id: ${{ inputs.operation-id }}
       timeout-seconds: ${{ inputs.timeout-seconds }}
-    secrets:
-      deploy-key: ${{ secrets.deploy-key }}
-
-  cleanup-restore-reservation:
-    name: 清理未就绪 ${{ inputs.service }} 恢复票号
-    needs: [restore-slot]
-    if: always() && needs.restore-slot.result != 'success'
-    uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/gitops-yq-script-bump.yml@main
-    with:
-      repository: CUHKSZ-ITSO-Dev/Cluster
-      ref: main
-      update-script: |
-        case '${{ inputs.service }}' in
-          chat) file=gpt-platform-env/dev/units/chat.yaml; slot_path=.chatBackend.devSlot ;;
-          uniauth) file=gpt-platform-env/dev/units/uniauth.yaml; slot_path=.uniauth.devSlot ;;
-          *) exit 0 ;;
-        esac
-        export OPERATION_ID='${{ inputs.operation-id }}'
-        yq -i 'del(eval(strenv(slot_path)).queue[] | select(.id == strenv(OPERATION_ID) and .ready == false))' "$file"
-      commit-message: "chore(dev): 清理 ${{ inputs.service }} 恢复票号 ${{ inputs.operation-id }}"
     secrets:
       deploy-key: ${{ secrets.deploy-key }}
