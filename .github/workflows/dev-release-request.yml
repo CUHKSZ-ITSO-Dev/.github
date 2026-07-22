@@ -19,7 +19,7 @@ on:
         required: true
         type: string
       image:
-        required: true
+        required: false
         type: string
       pr-number:
         required: false
@@ -71,10 +71,10 @@ jobs:
         image='${{ inputs.image }}'
         pr='${{ inputs.pr-number }}'
         case "$service" in open-platform|doubao|websearch|rag|docintel|ui) ;; *) echo "不支持的 DevRelease 服务: $service" >&2; exit 1 ;; esac
-        case "$kind" in pr|main) ;; *) echo "不支持的 DevRelease 类型: $kind" >&2; exit 1 ;; esac
+        case "$kind" in pr|main|restore) ;; *) echo "不支持的 DevRelease 类型: $kind" >&2; exit 1 ;; esac
         case "$operation" in *[!a-zA-Z0-9.-]*|'') echo "非法 operation-id" >&2; exit 1 ;; esac
         case "$commit" in ???????*) ;; *) echo "非法 commit SHA" >&2; exit 1 ;; esac
-        test -n "$image"
+        if test "$kind" != restore; then test -n "$image"; fi
         file="gpt-platform-env/dev/releases/${service}-${operation}.yaml"
         test -e "$file" && exit 0
         mkdir -p gpt-platform-env/dev/releases
