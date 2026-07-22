@@ -1,0 +1,76 @@
+name: 常规开发镜像发布
+
+on:
+  workflow_call:
+    inputs:
+      service: {required: true, type: string}
+      image-name: {required: true, type: string}
+      dockerfile: {required: false, type: string, default: Dockerfile}
+      context: {required: false, type: string, default: .}
+      build-args: {required: false, type: string, default: ""}
+      lfs-pull: {required: false, type: boolean, default: false}
+    secrets:
+      deploy-key: {required: true}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      kind: ${{ steps.plan.outputs.kind }}
+      ref: ${{ steps.plan.outputs.ref }}
+      commit: ${{ steps.plan.outputs.commit }}
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - id: plan
+        env:
+          ACTION: ${{ github.event.action }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          MERGE: ${{ github.event.pull_request.merge_commit_sha }}
+          PR: ${{ github.event.pull_request.number }}
+          SERVICE: ${{ inputs.service }}
+        run: |
+          set -euo pipefail
+          kind=""
+          ref=""
+          commit=""
+          if test "$ACTION" = closed && test "$MERGED" = true; then
+            kind="main"; commit="$MERGE"; ref="$MERGE"
+          elif test "$ACTION" = closed || { test "$ACTION" = unlabeled && ! jq -e 'index("auto-deploy-to-dev-server")' <<<"$LABELS" >/dev/null; }; then
+            kind="restore"; commit="$HEAD"; ref="$HEAD"
+          elif jq -e 'index("auto-deploy-to-dev-server")' <<<"$LABELS" >/dev/null; then
+            kind="pr"; commit="$HEAD"; ref="$HEAD"
+          fi
+          { echo "kind=$kind"; echo "ref=$ref"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
+          test -z "$kind" || echo "tag=dev-${SERVICE}-${kind}-${PR}-${commit:0:7}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.kind != '' && needs.plan.outputs.kind != 'restore'
+    uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/docker-build-push.yml@main
+    with:
+      image-name: ${{ inputs.image-name }}
+      context: ${{ inputs.context }}
+      dockerfile: ${{ inputs.dockerfile }}
+      checkout-ref: ${{ needs.plan.outputs.ref }}
+      version-tag: ${{ needs.plan.outputs.tag }}
+      semver-tags: false
+      cache-enabled: true
+      lfs-pull: ${{ inputs.lfs-pull }}
+      build-args: ${{ inputs.build-args }}
+
+  request:
+    needs: [plan, build]
+    if: always() && needs.plan.outputs.kind != '' && (needs.plan.outputs.kind == 'restore' || needs.build.result == 'success')
+    uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/dev-release-request.yml@main
+    with:
+      service: ${{ inputs.service }}
+      operation-id: ${{ needs.plan.outputs.kind }}-${{ github.run_id }}-${{ github.run_attempt }}
+      kind: ${{ needs.plan.outputs.kind }}
+      repository: ${{ github.repository }}
+      commit-sha: ${{ needs.plan.outputs.commit }}
+      image: ${{ needs.plan.outputs.kind == 'restore' && '' || format('{0}:{1}', inputs.image-name, needs.plan.outputs.tag) }}
+      pr-number: ${{ github.event.pull_request.number }}
+    secrets:
+      deploy-key: ${{ secrets.deploy-key }}
