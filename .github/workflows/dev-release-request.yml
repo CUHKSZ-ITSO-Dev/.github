@@ -1,0 +1,97 @@
+name: 提交开发发布请求
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      operation-id:
+        required: true
+        type: string
+      kind:
+        required: true
+        type: string
+      repository:
+        required: true
+        type: string
+      commit-sha:
+        required: true
+        type: string
+      image:
+        required: true
+        type: string
+      pr-number:
+        required: false
+        type: string
+        default: ""
+      label:
+        required: false
+        type: string
+        default: auto-deploy-to-dev-server
+    secrets:
+      deploy-key:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  verify-pr:
+    if: inputs.kind == 'pr'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          EXPECTED_SHA: ${{ inputs.commit-sha }}
+          REQUIRED_LABEL: ${{ inputs.label }}
+        run: |
+          set -euo pipefail
+          payload=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")
+          test "$(jq -r .state <<<"$payload")" = open
+          test "$(jq -r .head.sha <<<"$payload")" = "$EXPECTED_SHA"
+          test "$(jq -r --arg label "$REQUIRED_LABEL" '[.labels[].name] | index($label) != null' <<<"$payload")" = true
+
+  submit:
+    needs: verify-pr
+    if: always() && (needs.verify-pr.result == 'success' || needs.verify-pr.result == 'skipped')
+    uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/gitops-yq-script-bump.yml@main
+    with:
+      repository: CUHKSZ-ITSO-Dev/Cluster
+      ref: main
+      update-script: |
+        set -euo pipefail
+        service='${{ inputs.service }}'
+        operation='${{ inputs.operation-id }}'
+        kind='${{ inputs.kind }}'
+        repository='${{ inputs.repository }}'
+        commit='${{ inputs.commit-sha }}'
+        image='${{ inputs.image }}'
+        pr='${{ inputs.pr-number }}'
+        case "$service" in open-platform|doubao|websearch|rag|docintel|ui) ;; *) echo "不支持的 DevRelease 服务: $service" >&2; exit 1 ;; esac
+        case "$kind" in pr|main) ;; *) echo "不支持的 DevRelease 类型: $kind" >&2; exit 1 ;; esac
+        case "$operation" in *[!a-zA-Z0-9.-]*|'') echo "非法 operation-id" >&2; exit 1 ;; esac
+        case "$commit" in ???????*) ;; *) echo "非法 commit SHA" >&2; exit 1 ;; esac
+        test -n "$image"
+        file="gpt-platform-env/dev/releases/${service}-${operation}.yaml"
+        test -e "$file" && exit 0
+        mkdir -p gpt-platform-env/dev/releases
+        printf '%s\n' \
+          'apiVersion: devportal.cuhk.edu.cn/v1alpha1' \
+          'kind: DevRelease' \
+          'metadata:' \
+          "  name: ${service}-${operation}" \
+          '  namespace: gpt-dev' \
+          'spec:' \
+          "  service: ${service}" \
+          '  source:' \
+          "    repository: ${repository}" \
+          "    commit: ${commit}" \
+          "    image: ${image}" \
+          "    kind: ${kind}" \
+          "    pr: ${pr:-0}" > "$file"
+      commit-message: "chore(dev): 请求 ${{ inputs.service }} 发布 ${{ inputs.operation-id }}"
+    secrets:
+      deploy-key: ${{ secrets.deploy-key }}
