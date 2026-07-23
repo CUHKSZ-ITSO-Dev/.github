@@ -188,4 +188,4 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: ${{ inputs.cache-enabled && 'type=gha' || '' }}
-          cache-to: ${{ inputs.cache-enabled && 'type=gha,mode=min' || '' }}
+          cache-to: ${{ inputs.cache-enabled && 'type=gha,mode=min,ignore-error=true' || '' }}
