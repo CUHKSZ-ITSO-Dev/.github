@@ -4,8 +4,8 @@ on:
   workflow_call:
     secrets:
       pr_branch_sync_token:
-        description: 可选；用于让同步操作正常触发后续 PR 检查
-        required: false
+        description: 用于更新 PR 分支并正常触发后续检查
+        required: true
 
 permissions:
   contents: write
@@ -19,7 +19,7 @@ jobs:
       - name: 更新无冲突的仓库内 PR
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.pr_branch_sync_token || github.token }}
+          github-token: ${{ secrets.pr_branch_sync_token }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
