@@ -1,0 +1,113 @@
+name: 同步开放 PR 到最新主线
+
+on:
+  workflow_call:
+    secrets:
+      pr_branch_sync_token:
+        description: 可选；用于让同步操作正常触发后续 PR 检查
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-open-pr-branches:
+    name: 合并最新 main
+    runs-on: ubuntu-latest
+    steps:
+      - name: 更新无冲突的仓库内 PR
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.pr_branch_sync_token || github.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const base = "main";
+            const pulls = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: "open",
+              base,
+              per_page: 100,
+            });
+
+            const results = [];
+            let failed = false;
+
+            for (const listedPull of pulls) {
+              const number = listedPull.number;
+              const title = listedPull.title.replaceAll("|", "\\|");
+
+              if (listedPull.head.repo?.full_name !== `${owner}/${repo}`) {
+                results.push([number, title, "跳过", "外部仓库分支"]);
+                continue;
+              }
+
+              let pull;
+              for (let attempt = 0; attempt < 4; attempt += 1) {
+                pull = (await github.rest.pulls.get({ owner, repo, pull_number: number })).data;
+                if (pull.mergeable !== null) {
+                  break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+              }
+
+              if (pull.mergeable === false) {
+                results.push([number, title, "跳过", "存在合并冲突"]);
+                continue;
+              }
+
+              if (pull.mergeable === null) {
+                results.push([number, title, "跳过", "GitHub 尚未完成冲突检测"]);
+                continue;
+              }
+
+              const comparison = (await github.rest.repos.compareCommitsWithBasehead({
+                owner,
+                repo,
+                basehead: `${pull.base.sha}...${pull.head.sha}`,
+              })).data;
+
+              if (comparison.behind_by === 0) {
+                results.push([number, title, "无需更新", "已包含最新 main"]);
+                continue;
+              }
+
+              try {
+                await github.rest.pulls.updateBranch({
+                  owner,
+                  repo,
+                  pull_number: number,
+                  expected_head_sha: pull.head.sha,
+                });
+                results.push([number, title, "已更新", `合入 ${comparison.behind_by} 个主线提交`]);
+              } catch (error) {
+                failed = true;
+                results.push([number, title, "失败", `${error.status ?? "未知状态"} ${error.message}`]);
+                core.error(`PR #${number} 更新失败：${error.message}`);
+              }
+            }
+
+            await core.summary
+              .addHeading("开放 PR 主线同步结果")
+              .addTable([
+                [
+                  { data: "PR", header: true },
+                  { data: "标题", header: true },
+                  { data: "结果", header: true },
+                  { data: "说明", header: true },
+                ],
+                ...results.map(([number, title, result, detail]) => [
+                  `#${number}`,
+                  title,
+                  result,
+                  detail,
+                ]),
+              ])
+              .addRaw(pulls.length === 0 ? "\n当前没有以 main 为目标分支的开放 PR。\n" : "")
+              .write();
+
+            if (failed) {
+              core.setFailed("至少一个 PR 分支更新失败，请查看上方日志。");
+            }
