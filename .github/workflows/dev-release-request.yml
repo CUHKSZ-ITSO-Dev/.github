@@ -70,7 +70,7 @@ jobs:
         commit='${{ inputs.commit-sha }}'
         image='${{ inputs.image }}'
         pr='${{ inputs.pr-number }}'
-        case "$service" in open-platform|doubao|websearch|rag|docintel|ui) ;; *) echo "不支持的 DevRelease 服务: $service" >&2; exit 1 ;; esac
+        case "$service" in gateway|open-platform|doubao|websearch|rag|docintel|ui) ;; *) echo "不支持的 DevRelease 服务: $service" >&2; exit 1 ;; esac
         case "$kind" in pr|main|restore) ;; *) echo "不支持的 DevRelease 类型: $kind" >&2; exit 1 ;; esac
         case "$operation" in *[!a-zA-Z0-9.-]*|'') echo "非法 operation-id" >&2; exit 1 ;; esac
         case "$commit" in ???????*) ;; *) echo "非法 commit SHA" >&2; exit 1 ;; esac
