@@ -17,12 +17,6 @@
 | `.github/workflows/python-uv-check.yml` | 统一 Python uv 检查，支持 uv 安装依赖、路径过滤、环境变量注入和自定义检查命令。 | `WebSearch`、`doc-intelligence` |
 | `.github/workflows/python-uv-redis-rabbitmq-check.yml` | 统一带 Redis / RabbitMQ 服务的 Python uv 集成检查。 | `doc-intelligence` |
 | `.github/workflows/migration-check.yml` | 统一 PostgreSQL / SQL Server 迁移检查，默认保护历史迁移不可修改或删除。 | `Chat`、`open-platform`、`UniAuth` |
-| `.github/workflows/pr-dev-version.yml` | 统一生成 PR 开发服发布版本标签，不包含具体部署目标；默认从调用仓库名自动生成小写 slug，格式为 `dev-uniauth-pr-371-49afc8f`，使用环境、仓库 slug、PR 号和 7 位短 SHA。仓库名和服务名不一致时可传入 `repository-slug` 覆盖；保留可选 run 后缀仅用于明确需要绕过缓存或强制重发同一源码版本的特殊场景。 | `UI`、`UniAuth` |
-| `.github/workflows/dev-slot-metadata.yml` | 为单 PR 开发槽位生成稳定数据库名与按文件名排序的迁移清单，用于识别追加迁移与改写历史迁移。 | `Chat`、`UniAuth` |
-| `.github/workflows/dev-release-ticket.yml` | 在构建前持久化 generic 服务发布票据，并在制品就绪或准备失败时原子更新队列。 | `open-platform`、`Doubao-Speech-Service`、`WebSearch`、`rag`、`doc-intelligence`、`ui-cdn` |
-| `.github/workflows/dev-release-turn.yml` | 按服务独立 FIFO 队列等待前一操作健康收敛，原子激活 PR、main 或 restore 发布，并为失败回滚保留 previous 快照。 | 同上六个 generic 服务 |
-| `.github/workflows/dev-slot-wait.yml` | 等待服务独立 Argo 发布单元写回精确 receipts，只在镜像、迁移、Deployment 和必要回滚全部收敛后返回。 | 全部 9 个开发服标签仓库 |
-| `.github/workflows/pr-deploy-eligibility.yml` | 在写入 GitOps 前再次确认 PR 仍开放、SHA 未变化且开发发布标签仍存在，阻止过期构建覆盖开发服。 | 使用开发服标签发布的仓库 |
 | `.github/workflows/docker-build-push.yml` | 统一 Docker 镜像构建与推送流程，由业务仓库传入镜像名、上下文和 Dockerfile；支持按需 checkout 指定 ref，并可在 Git LFS 默认拉取后追加指定 include。 | `Chat`、`UniAuth`、`Gateway`、`open-platform`、`Doubao-Speech-Service`、`WebSearch`、`doc-intelligence`、`rag` |
 | `.github/workflows/ghcr-cleanup-container-versions.yml` | 统一清理 GHCR 容器包旧版本，默认保留最新 5 个版本。 | `doc-intelligence`、`rag` |
 | `.github/workflows/frontend-docker-build-push.yml` | 统一前端构建后再构建 Docker 镜像的流程，用于 Dockerfile 依赖预构建静态目录的项目；支持按需生成同源 `version-data.json`，字段包含版本、完整提交 SHA、提交链接、构建时间、拉取请求和拉取请求链接。版本页状态由 Gateway 聚合时统一判断。 | `UniAuth` |
@@ -34,10 +28,17 @@
 
 ## 开发服标签发布协议
 
-9 个纳入 `auto-deploy-to-dev-server` 的仓库各自持有独立发布队列和终态 receipt。`Chat`、`UniAuth`、`UI` 以及六个 generic 服务分别写入 Cluster 的独立 unit overlay；`UI` 另走 `.uiBuilder.devRelease`，不使用 generic 镜像切换工作流。唯一的跨队列互斥是 `UI` 与 `ui-cdn` 实际由同一 Argo Application 同步，因此 `ui-cdn` 的真实激活必须先取得 `.uiCdn.releaseLock`，健康完成或回滚后再由集群侧 fenced 清锁；该锁不合并两者的队列、receipt 或镜像状态。`Chat` 与 `UniAuth` 还在各自独立队列之上管理 golang-migrate 迁移清单、PR 数据库和开发主库提升；其他仓库不会读写这两个数据库状态。
+开发服发布已经迁入 `gpt-dev` 集群，由 Dev Portal Controller 统一轮询
+`auto-deploy-to-dev-server` 标签、构建镜像、推送 GHCR、提交开发服 GitOps
+目标并等待 Argo 与工作负载健康。业务仓库不再运行开发部署工作流；GitHub
+Actions 仅保留代码检查，以及标签/正式版本所需的镜像发布。
 
-generic ticket 写在 `<serviceRoot>.devRelease.queue[]`，固定字段为 `id`、单调的 GitHub Actions `run_id` 数字 `sequence`、`kind` (`pr|main|restore`)、字符串 `prNumber`、Unix 秒 `createdAt`、`ready` 和 `imageTag`。并发 reserve 后按 `sequence/createdAt/id` 排序，不能把抢到 Git push 的先后当作 FIFO。所有事件都必须在构建前 reserve，只有制品就绪后才置 `ready=true`；构建、ready 或 turn 失败会立即移除未激活票据并写 failed receipt，不等 4 小时过期。turn 只在票据到达队首、前一 `operationID == completedID` 且不在 rollback 时激活；激活前写入 `previous` 镜像 tag/digest 存在性与槽位状态，Argo SyncFail 时按该快照回滚。
+每个服务同时只有一个有效目标。同一仓库误标记多个 PR 时，以最近更新的
+开放 PR 为准；标签移除、PR 关闭或合并后，Controller 自动构建并恢复最新
+main。构建工具版本、yq、git-lfs、镜像仓库凭据、GitOps 写入凭据及前端依赖
+缓存均由集群统一维护，业务仓库无需重复安装。
 
-`latestRunID/latestRunAttempt` 是已激活水位，`latestSeenRunID/latestSeenRunAttempt` 是已 reserve 水位。首次执行仍严格按 `run_id` FIFO；`run_attempt > 1` 的 rerun 在 reserve 和 activation 两处都必须不落后于已见水位，防止旧 PR 或旧 merged-main run 重放后把开发服回退。PR 制品进入 ready 前还必须重新核对 PR 仍为 open、head SHA 未变且标签仍在。
-
-未激活 ticket 保留 4 小时，receipts 保留 7 天；`previous` 保留最近一次真实切换的回滚快照，并在下一次激活时更新。调用方只以 receipts 的 `succeeded|failed|stale|expired` 为终态，不把 GitOps 提交成功或单独 `completedID` 变化当作部署成功。
+`Chat` 与 `UniAuth` 继续使用 Cluster 中的数据库槽位协议：镜像构建完成后才
+提交槽位票据，集群负责迁移清单校验、PR 独立数据库、队列切换、失败回滚和
+main 恢复。其他普通服务由 Dev Portal 创建持久发布记录并串行提交 GitOps，
+发布过程和错误统一在 `/dev/` 查询。
