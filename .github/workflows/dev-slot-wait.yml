@@ -1,4 +1,4 @@
-name: 等待开发槽位操作完成
+name: 确认开发槽位请求已提交
 
 on:
   workflow_call:
@@ -18,60 +18,12 @@ on:
         required: true
 
 jobs:
-  wait:
-    name: 等待 Argo 完成服务发布
+  accepted:
+    name: 发布请求已交给开发集群
     runs-on: ubuntu-latest
-    timeout-minutes: 330
     steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: CUHKSZ-ITSO-Dev/Cluster
-          ssh-key: ${{ secrets.deploy-key }}
-          fetch-depth: 1
-          path: cluster
-
-      - name: 安装 yq
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.45.4/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-
-      - name: 等待完成回执
-        env:
-          SERVICE: ${{ inputs.service }}
-          OPERATION_ID: ${{ inputs.operation-id }}
-          TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+      - name: 输出监控入口
         run: |
           set -euo pipefail
-          case "$SERVICE" in
-            chat) values_file='gpt-platform-env/dev/units/chat.yaml'; receipt_expression='(.chatBackend.devSlot.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | select(length > 0) | .[-1] | .status) // ""'; completed_expression='' ;;
-            uniauth) values_file='gpt-platform-env/dev/units/uniauth.yaml'; receipt_expression='(.uniauth.devSlot.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | select(length > 0) | .[-1] | .status) // ""'; completed_expression='' ;;
-            ui) values_file='gpt-platform-env/dev/units/ui-build.yaml'; receipt_expression='(.uiBuilder.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | select(length > 0) | .[-1] | .status) // ""'; completed_expression='' ;;
-            open-platform) values_file='gpt-platform-env/dev/units/open-platform.yaml'; receipt_expression='(.openPlatform.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | select(length > 0) | .[-1] | .status) // ""'; completed_expression='' ;;
-            doubao) values_file='gpt-platform-env/dev/units/doubao.yaml'; receipt_expression='(.doubaoSpeech.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | select(length > 0) | .[-1] | .status) // ""'; completed_expression='' ;;
-            websearch) values_file='gpt-platform-env/dev/units/websearch.yaml'; receipt_expression='(.websearch.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | select(length > 0) | .[-1] | .status) // ""'; completed_expression='' ;;
-            rag) values_file='gpt-platform-env/dev/units/rag.yaml'; receipt_expression='(.rag.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | select(length > 0) | .[-1] | .status) // ""'; completed_expression='' ;;
-            docintel) values_file='gpt-platform-env/dev/units/docintel.yaml'; receipt_expression='(.docintel.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | select(length > 0) | .[-1] | .status) // ""'; completed_expression='' ;;
-            ui-cdn) values_file='gpt-platform-env/dev/units/ui-cdn.yaml'; receipt_expression='(.uiCdn.devRelease.receipts // [] | map(select(.id == strenv(OPERATION_ID))) | select(length > 0) | .[-1] | .status) // ""'; completed_expression='' ;;
-            *) echo "不支持的开发发布服务: $SERVICE" >&2; exit 1 ;;
-          esac
-          deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
-          while test "$(date +%s)" -lt "$deadline"; do
-            git -C cluster fetch --quiet origin main
-            payload=$(git -C cluster show "origin/main:$values_file")
-            if test -n "$receipt_expression"; then
-              status=$(printf '%s' "$payload" | yq "$receipt_expression")
-              case "$status" in
-                succeeded) echo "开发发布操作 $OPERATION_ID 已完成。"; exit 0 ;;
-                failed|stale|expired) echo "开发发布操作 $OPERATION_ID 以 $status 结束。" >&2; exit 1 ;;
-              esac
-            else
-              completed=$(printf '%s' "$payload" | yq "$completed_expression")
-              if test "$completed" = "$OPERATION_ID"; then
-                echo "开发发布操作 $OPERATION_ID 已完成。"
-                exit 0
-              fi
-            fi
-            sleep 10
-          done
-          echo "等待开发发布操作 $OPERATION_ID 超时；Argo Job 或 Deployment 未完成。" >&2
-          exit 1
+          echo "开发发布请求已提交：服务 ${{ inputs.service }}，操作 ${{ inputs.operation-id }}。"
+          echo "后续队列、迁移、切换、回滚与错误回执由开发集群执行，请在 https://testopenai-dev03.cuhk.edu.cn/dev/ 查看实时状态。"
