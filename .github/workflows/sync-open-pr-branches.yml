@@ -31,6 +31,11 @@ jobs:
               base,
               per_page: 100,
             });
+            const currentBaseSha = (await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: base,
+            })).data.commit.sha;
 
             const results = [];
             let failed = false;
@@ -66,7 +71,7 @@ jobs:
               const comparison = (await github.rest.repos.compareCommitsWithBasehead({
                 owner,
                 repo,
-                basehead: `${pull.base.sha}...${pull.head.sha}`,
+                basehead: `${currentBaseSha}...${pull.head.sha}`,
               })).data;
 
               if (comparison.behind_by === 0) {
