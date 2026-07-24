@@ -30,11 +30,20 @@ jobs:
           MERGE: ${{ github.event.pull_request.merge_commit_sha }}
           PR: ${{ github.event.pull_request.number }}
           SERVICE: ${{ inputs.service }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           kind=""
           ref=""
           commit=""
+          # pull_request_target 使用具有包写权限的令牌。绝不能检出外部 fork
+          # 的代码，否则不可信 PR 能借此取得发布权限。
+          if test "$HEAD_REPOSITORY" != "$REPOSITORY"; then
+            echo "忽略外部 fork 的开发发布请求" >&2
+            { echo "kind="; echo "ref="; echo "commit="; echo "tag="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if test "$ACTION" = closed && test "$MERGED" = true; then
             kind="main"; commit="$MERGE"; ref="$MERGE"
           elif test "$ACTION" = closed || { test "$ACTION" = unlabeled && ! jq -e 'index("auto-deploy-to-dev-server")' <<<"$LABELS" >/dev/null; }; then
