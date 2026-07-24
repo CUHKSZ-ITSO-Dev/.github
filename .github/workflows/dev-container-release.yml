@@ -54,24 +54,63 @@ jobs:
           { echo "kind=$kind"; echo "ref=$ref"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
           test -z "$kind" || echo "tag=dev-${SERVICE}-${kind}-${PR}-${commit:0:7}" >> "$GITHUB_OUTPUT"
 
-  build:
+  request-build:
     needs: plan
-    if: needs.plan.outputs.kind != '' && needs.plan.outputs.kind != 'restore'
-    uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/docker-build-push.yml@main
-    with:
-      image-name: ${{ inputs.image-name }}
-      context: ${{ inputs.context }}
-      dockerfile: ${{ inputs.dockerfile }}
-      checkout-ref: ${{ needs.plan.outputs.ref }}
-      version-tag: ${{ needs.plan.outputs.tag }}
-      semver-tags: false
-      cache-enabled: true
-      lfs-pull: ${{ inputs.lfs-pull }}
-      build-args: ${{ inputs.build-args }}
+    if: needs.plan.outputs.kind == 'pr' || needs.plan.outputs.kind == 'main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    steps:
+      - name: 申请短时 GitHub OIDC 身份令牌
+        id: oidc
+        run: |
+          set -euo pipefail
+          token=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=devportal.cuhk.edu.cn" | jq -r .value)
+          test -n "$token" && test "$token" != null
+          echo "token=$token" >> "$GITHUB_OUTPUT"
 
-  request:
-    needs: [plan, build]
-    if: always() && needs.plan.outputs.kind != '' && (needs.plan.outputs.kind == 'restore' || needs.build.result == 'success')
+      - name: 向开发集群提交构建请求
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+          SERVICE: ${{ inputs.service }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+          IMAGE: ${{ format('{0}:{1}', inputs.image-name, needs.plan.outputs.tag) }}
+          KIND: ${{ needs.plan.outputs.kind }}
+          PR: ${{ github.event.pull_request.number }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+          CONTEXT: ${{ inputs.context }}
+          BUILD_ARGS: ${{ inputs.build-args }}
+          LFS_PULL: ${{ inputs.lfs-pull }}
+        run: |
+          set -euo pipefail
+          args='{}'
+          while IFS= read -r line; do
+            test -z "$line" && continue
+            key=${line%%=*}
+            value=${line#*=}
+            test "$key" != "$line" || { echo "非法 build-arg：$line" >&2; exit 1; }
+            args=$(jq --arg key "$key" --arg value "$value" '. + {($key): $value}' <<<"$args")
+          done <<<"$BUILD_ARGS"
+          name="${SERVICE}-${KIND}-${PR}-${COMMIT:0:7}"
+          payload=$(jq -cn \
+            --arg name "$name" --arg service "$SERVICE" --arg repository "$REPOSITORY" \
+            --arg commit "$COMMIT" --arg image "$IMAGE" --arg kind "$KIND" \
+            --arg dockerfile "$DOCKERFILE" --arg context "$CONTEXT" --argjson pr "$PR" --argjson buildArgs "$args" --argjson lfs "$LFS_PULL" \
+            '{name:$name,service:$service,repository:$repository,commit:$commit,image:$image,kind:$kind,pr:$pr,dockerfile:$dockerfile,context:$context,buildArgs:$buildArgs,lfs:$lfs}')
+          curl --fail --silent --show-error \
+            -X POST https://testopenai-dev03.cuhk.edu.cn/dev/api/v1/builds \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data "$payload"
+
+  restore:
+    needs: plan
+    if: needs.plan.outputs.kind == 'restore'
     uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/dev-release-request.yml@main
     with:
       service: ${{ inputs.service }}
