@@ -19,7 +19,7 @@ concurrency:
 jobs:
   submit:
     name: 写入提交状态
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: 登记集群预检请求
         env:
@@ -30,14 +30,7 @@ jobs:
           PORTAL_URL: https://testopenai-dev03.cuhk.edu.cn/dev/checks
         run: |
           set -euo pipefail
-          payload="$(jq -n \
-            --arg target_url "$PORTAL_URL" \
-            '{
-              state: "pending",
-              context: "Dev Portal / 开发环境预检",
-              description: "等待集群领取预检任务",
-              target_url: $target_url
-            }')"
+          payload="{\"state\":\"pending\",\"context\":\"Dev Portal / 开发环境预检\",\"description\":\"等待集群领取预检任务\",\"target_url\":\"${PORTAL_URL}\"}"
           curl --fail --silent --show-error \
             --retry 2 --retry-all-errors \
             -X POST \
