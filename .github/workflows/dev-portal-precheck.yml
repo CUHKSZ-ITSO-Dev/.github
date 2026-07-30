@@ -1,4 +1,4 @@
-name: 常规 Dev Portal 开发环境预检
+name: PR 预检请求登记
 
 on:
   workflow_call:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   submit:
-    name: 提交预检请求
+    name: 写入提交状态
     runs-on: ubuntu-latest
     steps:
       - name: 登记集群预检请求
