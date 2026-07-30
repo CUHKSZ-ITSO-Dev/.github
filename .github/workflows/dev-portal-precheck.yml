@@ -11,6 +11,10 @@ on:
 permissions:
   id-token: write
 
+concurrency:
+  group: dev-portal-precheck-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   submit:
     name: 提交预检请求
