@@ -1,0 +1,56 @@
+name: 常规 Dev Portal 开发环境预检
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: Dev Portal 服务标识
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+
+concurrency:
+  group: dev-portal-precheck-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  submit:
+    name: 提交预检请求
+    runs-on: ubuntu-latest
+    steps:
+      - name: 提交到 Dev Portal
+        env:
+          SERVICE: ${{ inputs.service }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+          token="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=devportal.cuhk.edu.cn" |
+            jq -er '.value')"
+          echo "::add-mask::$token"
+          payload="$(jq -n \
+            --arg service "$SERVICE" \
+            --arg repository "$REPOSITORY" \
+            --arg commit "$COMMIT_SHA" \
+            --arg baseCommit "$BASE_SHA" \
+            --argjson pr "$PR_NUMBER" \
+            --argjson runID "$RUN_ID" \
+            --arg title "$PR_TITLE" \
+            --arg sourceURL "$PR_URL" \
+            '{service, repository, commit, baseCommit, pr, runID, title, sourceURL}')"
+          curl --fail --silent --show-error \
+            --retry 3 --retry-all-errors \
+            -H "Authorization: Bearer ${token}" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            https://testopenai-dev03.cuhk.edu.cn/dev/api/v1/checks
+          echo "预检请求已提交，后续构建和校验由 Dev Portal 在集群中完成。"
