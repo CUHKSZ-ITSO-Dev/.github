@@ -205,6 +205,26 @@ jobs:
             echo "MIGRATION_TEST_GOFRAME_LINK=mssql:sa:DevPass123!@tcp(localhost:1433)/${{ inputs.app-database-name }}?encrypt=disable" >> "$GITHUB_ENV"
           fi
 
+      - name: 准备 CGO 参数
+        if: steps.plan.outputs.run == 'true' && (inputs.cgo-enabled != '' || inputs.cgo-ldflags != '' || inputs.cgo-library-dir != '')
+        env:
+          INPUT_CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          INPUT_CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
+          INPUT_CGO_LIBRARY_DIR: ${{ inputs.cgo-library-dir }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$INPUT_CGO_ENABLED" ]; then
+            echo "CGO_ENABLED=$INPUT_CGO_ENABLED" >> "$GITHUB_ENV"
+          fi
+
+          if [ -n "$INPUT_CGO_LDFLAGS" ]; then
+            echo "CGO_LDFLAGS=$INPUT_CGO_LDFLAGS" >> "$GITHUB_ENV"
+          elif [ -n "$INPUT_CGO_LIBRARY_DIR" ]; then
+            library_dir="${INPUT_CGO_LIBRARY_DIR#/}"
+            echo "CGO_LDFLAGS=-L${GITHUB_WORKSPACE}/${library_dir}" >> "$GITHUB_ENV"
+          fi
+
       - name: 启动 PostgreSQL
         if: steps.plan.outputs.run == 'true' && inputs.database-kind == 'postgres'
         run: |
