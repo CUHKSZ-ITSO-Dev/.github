@@ -1,4 +1,4 @@
-name: 常规 Go 代码检查
+name: golangci-lint
 
 on:
   workflow_call:
@@ -63,7 +63,7 @@ permissions:
 
 jobs:
   golangci:
-    name: 常规 Go 代码检查
+    name: golangci-lint
     runs-on: ubuntu-latest
     steps:
       - name: 准备路径过滤配置
