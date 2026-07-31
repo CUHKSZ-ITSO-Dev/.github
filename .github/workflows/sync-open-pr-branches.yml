@@ -71,6 +71,9 @@ jobs:
           git config --global core.hooksPath /dev/null
 
           remote_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # checkout 禁用了 persist-credentials；后续 fetch 也必须使用自动化令牌。
+          # 否则工作流会在收集 PR 后因 origin 无凭据而直接退出。
+          git remote set-url origin "${remote_url}"
           base="main"
           git fetch --no-tags origin "${base}"
           base_sha="$(git rev-parse "origin/${base}")"
