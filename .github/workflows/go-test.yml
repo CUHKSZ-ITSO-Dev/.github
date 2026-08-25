@@ -73,10 +73,6 @@ on:
         type: boolean
         default: true
 
-    secrets:
-      ITSO_AUTOMATION_TOKEN:
-        required: false
-
 permissions:
   contents: read
   pull-requests: read
@@ -89,7 +85,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.ITSO_AUTOMATION_TOKEN || github.token }}
           persist-credentials: false
 
       - name: 准备路径过滤配置
@@ -115,7 +110,7 @@ jobs:
         uses: dorny/paths-filter@v4
         with:
           filters: ${{ steps.filter-config.outputs.filters }}
-          token: ${{ secrets.ITSO_AUTOMATION_TOKEN || github.token }}
+          token: ${{ github.token }}
 
       - name: 判断是否执行测试
         id: plan

@@ -29,7 +29,7 @@ on:
         type: string
         default: v4.45.4
     secrets:
-      deploy-key:
+      ITSO_AUTOMATION_TOKEN:
         required: true
 
 permissions:
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: ${{ inputs.repository }}
-          ssh-key: ${{ secrets.deploy-key }}
+          token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
           ref: ${{ inputs.ref }}
           fetch-depth: 0
           path: ${{ inputs.checkout-path }}
