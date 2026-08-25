@@ -152,7 +152,7 @@ jobs:
       - name: 拉取 Git LFS 文件
         if: steps.plan.outputs.run == 'true' && inputs.lfs-include != ''
         env:
-          GITHUB_TOKEN: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           LFS_INCLUDE: ${{ inputs.lfs-include }}
         run: |
           set -euo pipefail
