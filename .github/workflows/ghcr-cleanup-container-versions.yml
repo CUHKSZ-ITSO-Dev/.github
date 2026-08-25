@@ -14,6 +14,9 @@ on:
         required: false
         type: number
         default: 5
+    secrets:
+      ITSO_AUTOMATION_TOKEN:
+        required: true
 
 permissions:
   packages: write
@@ -28,7 +31,7 @@ jobs:
           OWNER: ${{ inputs.owner }}
           PACKAGE_NAME: ${{ inputs.package-name }}
           KEEP_COUNT: ${{ inputs.keep-count }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
         run: |
           set -euo pipefail
 
