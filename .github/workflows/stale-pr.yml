@@ -2,6 +2,9 @@ name: 常规不活跃 PR
 
 on:
   workflow_call:
+    secrets:
+      ITSO_AUTOMATION_TOKEN:
+        required: true
 
 permissions:
   issues: write
@@ -15,6 +18,7 @@ jobs:
       - name: 准备 PR 状态标签
         uses: actions/github-script@v8
         with:
+          github-token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
           script: |
             const labels = [
               {
@@ -66,6 +70,7 @@ jobs:
       - name: 标记并关闭不活跃 PR
         uses: actions/stale@v10
         with:
+          repo-token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
           days-before-issue-stale: -1
           days-before-issue-close: -1
           days-before-pr-stale: 7

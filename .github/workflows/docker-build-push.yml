@@ -73,6 +73,10 @@ on:
         type: string
         default: ""
 
+    secrets:
+      ITSO_AUTOMATION_TOKEN:
+        required: true
+
 permissions:
   contents: read
   packages: write
@@ -87,12 +91,13 @@ jobs:
         with:
           ref: ${{ inputs.checkout-ref || github.sha }}
           lfs: ${{ inputs.lfs-pull }}
+          token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
           persist-credentials: false
 
       - name: 拉取 Git LFS 文件
         if: inputs.lfs-pull
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
           LFS_INCLUDE: ${{ inputs.lfs-include }}
           LFS_EXTRA_INCLUDE: ${{ inputs.lfs-extra-include }}
         run: |
@@ -166,7 +171,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ github.token }}
+          password: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
 
       - name: Extract metadata
         id: meta
