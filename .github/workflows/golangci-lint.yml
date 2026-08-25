@@ -59,7 +59,7 @@ on:
 
     secrets:
       ITSO_AUTOMATION_TOKEN:
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -92,7 +92,7 @@ jobs:
         if: github.event_name == 'push'
         with:
           fetch-depth: 0
-          token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          token: ${{ secrets.ITSO_AUTOMATION_TOKEN || github.token }}
           persist-credentials: false
 
       - name: 检查是否有 Go 相关改动
@@ -101,7 +101,7 @@ jobs:
         if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
         with:
           filters: ${{ steps.filter-config.outputs.filters }}
-          token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          token: ${{ secrets.ITSO_AUTOMATION_TOKEN || github.token }}
 
       - name: 判断是否执行 Go 代码检查
         id: plan
@@ -130,7 +130,7 @@ jobs:
       - uses: actions/checkout@v6
         if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
         with:
-          token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          token: ${{ secrets.ITSO_AUTOMATION_TOKEN || github.token }}
           persist-credentials: false
 
       - name: 恢复 Git LFS 缓存
@@ -144,16 +144,9 @@ jobs:
 
       - name: 拉取 Git LFS 文件
         if: steps.plan.outputs.run == 'true' && inputs.lfs-include != ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
-          LFS_INCLUDE: ${{ inputs.lfs-include }}
         run: |
-          set -euo pipefail
-          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
-          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
-          git lfs pull --include="$LFS_INCLUDE"
+          git lfs pull
+          git lfs pull --include="${{ inputs.lfs-include }}"
 
       - name: 保存 Git LFS 缓存
         if: steps.plan.outputs.run == 'true' && inputs.lfs-include != '' && steps.lfs.outputs.cache-hit != 'true'
@@ -202,7 +195,7 @@ jobs:
         with:
           version: ${{ inputs.golangci-version }}
           working-directory: ${{ inputs.working-directory }}
-          github-token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          github-token: ${{ secrets.ITSO_AUTOMATION_TOKEN || github.token }}
 
       - name: 跳过 Go 代码检查
         if: steps.plan.outputs.run != 'true'

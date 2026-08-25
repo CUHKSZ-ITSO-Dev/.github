@@ -45,7 +45,6 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
-          persist-credentials: true
           ref: ${{ inputs.ref }}
           fetch-depth: 0
           path: ${{ inputs.checkout-path }}

@@ -90,9 +90,6 @@ on:
         required: false
         type: string
         default: Asia/Shanghai
-    secrets:
-      ITSO_AUTOMATION_TOKEN:
-        required: true
     outputs:
       asset:
         description: "发布制品文件名"
@@ -126,8 +123,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.checkout-ref || inputs.release-tag }}
-          token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
-          persist-credentials: false
 
       - name: 安装 pnpm
         if: inputs.pnpm-version == ''
@@ -265,7 +260,7 @@ jobs:
 
       - name: 创建或更新 GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           RELEASE_TITLE: ${{ inputs.release-title || inputs.release-tag }}
           RELEASE_NOTES: ${{ inputs.release-notes }}
