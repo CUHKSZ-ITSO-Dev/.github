@@ -144,9 +144,16 @@ jobs:
 
       - name: 拉取 Git LFS 文件
         if: steps.plan.outputs.run == 'true' && inputs.lfs-include != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          LFS_INCLUDE: ${{ inputs.lfs-include }}
         run: |
-          git lfs pull
-          git lfs pull --include="${{ inputs.lfs-include }}"
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          git lfs pull --include="$LFS_INCLUDE"
 
       - name: 保存 Git LFS 缓存
         if: steps.plan.outputs.run == 'true' && inputs.lfs-include != '' && steps.lfs.outputs.cache-hit != 'true'
