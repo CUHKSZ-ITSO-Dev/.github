@@ -23,6 +23,9 @@ on:
         default: |
           REDIS_URL=redis://localhost:6379
           RABBITMQ_URL=amqp://guest:guest@localhost:5672/
+    secrets:
+      ITSO_AUTOMATION_TOKEN:
+        required: true
 
 permissions:
   contents: read
@@ -52,6 +55,9 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          persist-credentials: false
 
       - name: 安装 uv
         uses: astral-sh/setup-uv@v6

@@ -91,6 +91,9 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      ITSO_AUTOMATION_TOKEN:
+        required: true
 
 permissions:
   contents: read
@@ -114,6 +117,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          persist-credentials: false
 
       - name: 准备路径和连接参数
         run: |
