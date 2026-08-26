@@ -155,6 +155,10 @@ jobs:
           export GIT_CONFIG_COUNT=1
           export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          # 先拉全量：检查过程会读到仓库里各种 LFS 资产（分词表、ONNX 模型、测试夹具），
+          # 只拉 lfs-include 会让其余文件停在 LFS 指针文本上，被当成真文件解析时
+          # 报 "invalid character 'v'" / "expected value at line 1 column 1"。
+          git lfs pull
           git lfs pull --include="$LFS_INCLUDE"
 
       - name: 保存 Git LFS 缓存
