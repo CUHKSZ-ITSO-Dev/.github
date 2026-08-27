@@ -9,6 +9,7 @@
 | `.github/pull_request_template.md` | 组织统一 PR 模板，要求填写背景、改动、影响、验证、材料。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `actions/check-pr-body/action.yml` | 读取公共 PR 模板中的二级标题，动态检查 PR 描述是否填写对应小节。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/pr-check.yml` | 统一检查 PR 描述、commit 数量和 Commit Message。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
+| `.github/workflows/sync-pr-template.yml` | PR 模板进入 `main` 后，自动发现调用公共 PR 检查的仓库，为模板差异创建同步 PR，并由组织自动化令牌绕过门禁合并。 | 自动发现 |
 | `.github/workflows/stale-pr.yml` | 统一标记和关闭不活跃 PR，并维护 `stale` / `no-stale` 标签说明。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/golangci-lint.yml` | 统一 Go 静态检查，支持 LFS、CGO、子目录模块和 glob 变更过滤。 | `Chat`、`open-platform`、`UniAuth` |
 | `.github/workflows/go-test.yml` | 统一单检查 Go 测试，支持路径跳过、LFS、CGO 和可选测试数据库。 | `Chat`、`open-platform`、`UniAuth` |
@@ -24,6 +25,22 @@
 | `.github/workflows/gitops-yq-script-bump.yml` | 统一 GitOps 仓库 checkout、yq 安装、脚本式多文件更新、提交和重试推送流程。适用于一次发布需要同时更新 values、Chart.yaml 等多个 YAML 文件的仓库。 | `Docs` |
 
 业务仓库只保留触发入口、仓库路径、数据库类型、测试命令等必要参数；公共检查逻辑、工具版本和中文提示文本集中在这里维护。发布、部署、制品构建的通用机械步骤可以复用本仓库工作流；具体部署仓库、环境路径、集群字段、对象存储端点、Secret 名称映射和内部架构说明仍由各业务仓库自行维护。
+
+## PR 模板自动同步
+
+`.github/pull_request_template.md` 合入 `main` 后，`sync-pr-template.yml` 会通过
+GitHub 代码搜索发现所有调用
+`CUHKSZ-ITSO-Dev/.github/.github/workflows/pr-check.yml@main` 的非归档、非 fork
+仓库。目标模板不一致时，流程会重建 `automation/sync-pr-template` 分支、创建
+同步 PR，并用目标仓库启用的合并方式执行管理员合并。手动运行工作流时可启用
+`dry-run`，只列出需要同步的仓库。同步工作流或脚本本身进入 `main` 时也会执行
+一次幂等同步，用于首次启用和逻辑升级。
+
+自动化使用组织级 Actions secret `ITSO_AUTOMATION_TOKEN`。该令牌必须能够读取
+组织代码搜索结果，在目标仓库创建分支和 PR，并具备通过 `gh pr merge --admin`
+绕过默认分支规则的仓库管理员权限。若令牌缺失、不可见目标仓库或无法管理员
+合并，流程会失败并保留已创建的同步 PR，不会退化为直接推送默认分支。新增仓库
+只需向该令牌开放仓库、调用公共 `pr-check.yml@main`，无需维护静态仓库清单。
 
 ## 开发服标签发布协议
 
