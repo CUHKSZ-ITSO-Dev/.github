@@ -1,0 +1,42 @@
+name: 同步组织 PR 模板
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/pull_request_template.md
+      - .github/scripts/sync-pr-template.sh
+      - .github/workflows/sync-pr-template.yml
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 仅检查需要同步的仓库，不创建或合并 PR
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-organization-pr-template
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: 同步 PR 模板
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: 同步并合并目标仓库 PR
+        env:
+          GH_TOKEN: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          DRY_RUN: ${{ inputs.dry-run || 'false' }}
+        run: .github/scripts/sync-pr-template.sh
