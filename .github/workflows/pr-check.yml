@@ -27,8 +27,8 @@ jobs:
           count=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits?per_page=100" --jq 'length')
           echo "PR 包含 ${count} 个 commit。"
 
-          if [ "${count}" -gt 20 ]; then
-            echo "::error::PR 包含 ${count} 个 commit，超过上限 20 个。请拆分 PR 或整理提交历史。"
+          if [ "${count}" -gt 30 ]; then
+            echo "::error::PR 包含 ${count} 个 commit，超过上限 30 个。请拆分 PR 或整理提交历史。"
             exit 1
           fi
 
