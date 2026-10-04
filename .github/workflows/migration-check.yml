@@ -159,7 +159,7 @@ jobs:
           fi
 
           if [ -n "${GITHUB_BASE_REF:-}" ]; then
-            git fetch origin "${GITHUB_BASE_REF}" --depth=1
+            git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
             changed_files=$(git diff --name-only "origin/${GITHUB_BASE_REF}"...HEAD)
             if [ "${{ inputs.immutable-migration-files }}" = "true" ]; then
               immutable_migration_files=$(git diff --name-only --diff-filter=MRTD "origin/${GITHUB_BASE_REF}"...HEAD -- "${FULL_MIGRATION_DIR}/*.sql" || true)
