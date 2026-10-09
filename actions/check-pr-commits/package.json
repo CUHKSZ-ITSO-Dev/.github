@@ -11,6 +11,6 @@
     "@commitlint/load": "19.2.0"
   },
   "devDependencies": {
-    "picomatch": "4.0.3"
+    "picomatch": "4.0.4"
   }
 }
