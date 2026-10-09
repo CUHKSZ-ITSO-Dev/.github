@@ -1,0 +1,136 @@
+name: 统一 CI 配置
+description: 集中管理指定仓库的检查参数；旧入口参数不覆盖集中配置。
+inputs:
+  kind:
+    required: true
+    description: 检查类型
+  legacy-inputs:
+    required: true
+    description: 未纳管仓库原有参数
+outputs:
+  always-run-paths:
+    description: always-run-paths
+    value: ${{ steps.resolve.outputs.always-run-paths }}
+  app-database-name:
+    description: app-database-name
+    value: ${{ steps.resolve.outputs.app-database-name }}
+  binary-check-command:
+    description: binary-check-command
+    value: ${{ steps.resolve.outputs.binary-check-command }}
+  business-table-query:
+    description: business-table-query
+    value: ${{ steps.resolve.outputs.business-table-query }}
+  cache-dependency-path:
+    description: cache-dependency-path
+    value: ${{ steps.resolve.outputs.cache-dependency-path }}
+  cgo-enabled:
+    description: cgo-enabled
+    value: ${{ steps.resolve.outputs.cgo-enabled }}
+  cgo-ldflags:
+    description: cgo-ldflags
+    value: ${{ steps.resolve.outputs.cgo-ldflags }}
+  cgo-library-dir:
+    description: cgo-library-dir
+    value: ${{ steps.resolve.outputs.cgo-library-dir }}
+  changed-paths:
+    description: changed-paths
+    value: ${{ steps.resolve.outputs.changed-paths }}
+  check-command:
+    description: check-command
+    value: ${{ steps.resolve.outputs.check-command }}
+  check-git-attrs:
+    description: check-git-attrs
+    value: ${{ steps.resolve.outputs.check-git-attrs }}
+  check-migrations-command:
+    description: check-migrations-command
+    value: ${{ steps.resolve.outputs.check-migrations-command }}
+  clean-unused-sdks:
+    description: clean-unused-sdks
+    value: ${{ steps.resolve.outputs.clean-unused-sdks }}
+  database-kind:
+    description: database-kind
+    value: ${{ steps.resolve.outputs.database-kind }}
+  database-name:
+    description: database-name
+    value: ${{ steps.resolve.outputs.database-name }}
+  full-rollback:
+    description: full-rollback
+    value: ${{ steps.resolve.outputs.full-rollback }}
+  go-cache-dependency-path:
+    description: go-cache-dependency-path
+    value: ${{ steps.resolve.outputs.go-cache-dependency-path }}
+  go-version:
+    description: go-version
+    value: ${{ steps.resolve.outputs.go-version }}
+  go-version-file:
+    description: go-version-file
+    value: ${{ steps.resolve.outputs.go-version-file }}
+  golangci-version:
+    description: golangci-version
+    value: ${{ steps.resolve.outputs.golangci-version }}
+  ignored-paths:
+    description: ignored-paths
+    value: ${{ steps.resolve.outputs.ignored-paths }}
+  immutable-migration-files:
+    description: immutable-migration-files
+    value: ${{ steps.resolve.outputs.immutable-migration-files }}
+  install-command:
+    description: install-command
+    value: ${{ steps.resolve.outputs.install-command }}
+  lfs-include:
+    description: lfs-include
+    value: ${{ steps.resolve.outputs.lfs-include }}
+  migrate-version:
+    description: migrate-version
+    value: ${{ steps.resolve.outputs.migrate-version }}
+  migration-dir:
+    description: migration-dir
+    value: ${{ steps.resolve.outputs.migration-dir }}
+  migration-embed-file:
+    description: migration-embed-file
+    value: ${{ steps.resolve.outputs.migration-embed-file }}
+  migration-path-pattern:
+    description: migration-path-pattern
+    value: ${{ steps.resolve.outputs.migration-path-pattern }}
+  migration-tags:
+    description: migration-tags
+    value: ${{ steps.resolve.outputs.migration-tags }}
+  node-version:
+    description: node-version
+    value: ${{ steps.resolve.outputs.node-version }}
+  package-manager:
+    description: package-manager
+    value: ${{ steps.resolve.outputs.package-manager }}
+  playwright-browsers:
+    description: playwright-browsers
+    value: ${{ steps.resolve.outputs.playwright-browsers }}
+  pnpm-version:
+    description: pnpm-version
+    value: ${{ steps.resolve.outputs.pnpm-version }}
+  predicate-quantifier:
+    description: predicate-quantifier
+    value: ${{ steps.resolve.outputs.predicate-quantifier }}
+  prepare-command:
+    description: prepare-command
+    value: ${{ steps.resolve.outputs.prepare-command }}
+  schema-contract:
+    description: schema-contract
+    value: ${{ steps.resolve.outputs.schema-contract }}
+  skip-draft-pr:
+    description: skip-draft-pr
+    value: ${{ steps.resolve.outputs.skip-draft-pr }}
+  test-flags:
+    description: test-flags
+    value: ${{ steps.resolve.outputs.test-flags }}
+  working-directory:
+    description: working-directory
+    value: ${{ steps.resolve.outputs.working-directory }}
+runs:
+  using: composite
+  steps:
+  - id: resolve
+    shell: bash
+    env:
+      POLICY_KIND: ${{ inputs.kind }}
+      LEGACY_INPUTS: ${{ inputs.legacy-inputs }}
+    run: python3 "$GITHUB_ACTION_PATH/resolve.py"

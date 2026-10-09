@@ -66,6 +66,13 @@ jobs:
     name: 前端检查
     runs-on: ubuntu-latest
     steps:
+      - name: 读取统一 CI 配置
+        id: policy
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-policy@main
+        with:
+          kind: frontend-check
+          legacy-inputs: ${{ toJSON(inputs) }}
+
       - name: 开始资源采样
         uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
         with:
@@ -73,11 +80,11 @@ jobs:
 
       - name: 准备路径过滤配置
         id: filter-config
-        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (steps.policy.outputs.skip-draft-pr == 'false' || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
         env:
-          CHANGED_PATHS: ${{ inputs.changed-paths }}
-          IGNORED_PATHS: ${{ inputs.ignored-paths }}
-          ALWAYS_RUN_PATHS: ${{ inputs.always-run-paths }}
+          CHANGED_PATHS: ${{ steps.policy.outputs.changed-paths }}
+          IGNORED_PATHS: ${{ steps.policy.outputs.ignored-paths }}
+          ALWAYS_RUN_PATHS: ${{ steps.policy.outputs.always-run-paths }}
         run: |
           python3 <<'PY' >> "$GITHUB_OUTPUT"
           import os
@@ -111,10 +118,10 @@ jobs:
       - name: 检查是否有前端相关改动
         id: check
         uses: dorny/paths-filter@v4.0.3
-        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (steps.policy.outputs.skip-draft-pr == 'false' || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
         with:
           filters: ${{ steps.filter-config.outputs.filters }}
-          predicate-quantifier: ${{ inputs.predicate-quantifier }}
+          predicate-quantifier: ${{ steps.policy.outputs.predicate-quantifier }}
           token: ${{ github.token }}
 
       - name: 判断是否执行前端检查
@@ -125,7 +132,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${{ inputs.skip-draft-pr }}" = "true" ] &&
+          if [ "${{ steps.policy.outputs.skip-draft-pr }}" = "true" ] &&
             [ "${{ github.event_name }}" = "pull_request" ] &&
             [ "${{ github.event.pull_request.draft }}" = "true" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -148,33 +155,33 @@ jobs:
           persist-credentials: false
 
       - name: 安装 pnpm
-        if: steps.plan.outputs.run == 'true' && inputs.package-manager == 'pnpm'
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.package-manager == 'pnpm'
         uses: pnpm/action-setup@v6.1.0
         with:
-          version: ${{ inputs.pnpm-version }}
+          version: ${{ steps.policy.outputs.pnpm-version }}
 
       - name: 安装 Node.js
         if: steps.plan.outputs.run == 'true'
         uses: actions/setup-node@v7.1.0
         with:
-          node-version: ${{ inputs.node-version }}
-          cache: ${{ inputs.package-manager }}
-          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+          node-version: ${{ steps.policy.outputs.node-version }}
+          cache: ${{ steps.policy.outputs.package-manager }}
+          cache-dependency-path: ${{ steps.policy.outputs.cache-dependency-path }}
 
       - name: 安装依赖
         if: steps.plan.outputs.run == 'true'
-        working-directory: ${{ inputs.working-directory }}
-        run: ${{ inputs.install-command }}
+        working-directory: ${{ steps.policy.outputs.working-directory }}
+        run: ${{ steps.policy.outputs.install-command }}
 
       - name: 安装 Playwright 浏览器
-        if: steps.plan.outputs.run == 'true' && inputs.playwright-browsers != ''
-        working-directory: ${{ inputs.working-directory }}
-        run: pnpm exec playwright install --with-deps ${{ inputs.playwright-browsers }}
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-browsers != ''
+        working-directory: ${{ steps.policy.outputs.working-directory }}
+        run: pnpm exec playwright install --with-deps ${{ steps.policy.outputs.playwright-browsers }}
 
       - name: 执行前端检查
         if: steps.plan.outputs.run == 'true'
-        working-directory: ${{ inputs.working-directory }}
-        run: ${{ inputs.check-command }}
+        working-directory: ${{ steps.policy.outputs.working-directory }}
+        run: ${{ steps.policy.outputs.check-command }}
 
       - name: 跳过前端检查
         if: steps.plan.outputs.run != 'true'

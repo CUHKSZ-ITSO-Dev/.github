@@ -66,3 +66,11 @@ Go、静态检查、前端、迁移和 PR 规范工作流统一维护稳定工�
 各检查按原有路径和草稿策略选择执行，原有 race、迁移契约及检查命令保留。Go 编译并发对应托管 runner 实际 CPU 数量；`clean-unused-sdks` 默认开启，Go 检查清理不使用的 Android、.NET、GHC SDK；需要这些 SDK 的调用方显式传入 false，释放 race 链接所需磁盘。
 
 `actions/ci-resources` 每 5 秒采样机器 CPU、内存及磁盘余量，在步骤日志输出 `CI_RESOURCE_SUMMARY` 并写入运行摘要，用于依据实际消耗选择执行环境。采样包含 runner 和临时数据库，不能当成单一检查进程的峰值。GitHub 原生检查各自保留结果，DevPortal 部署状态只反映开发服交付。
+
+### 集中管理检查配置
+
+Chat、UniAuth、open-platform 的 Go 测试、lint、前端与迁移检查配置统一放在 `actions/ci-policy/policy.json`。共享工作流从自身 action 的可信 checkout 读取配置，按 `github.repository` 和检查类型选择；上述仓库传入的旧 `with` 参数不覆盖集中配置。其余调用仓库保持原有参数行为，逐仓迁移时再加入清单。
+
+业务仓库保留 GitHub 所需的事件触发入口及共享工作流引用，删除工具版本、检查命令、数据库参数和路径过滤等 `with` 配置。仓库差异、集成测试环境变量、race 检测和迁移回滚验证均在集中配置中保留。此次收口不批量升级版本；兼容性升级应先通过真实检查再更新集中配置。
+
+业务入口、CODEOWNERS 和集中执行器由 `@dsanying` 审阅，main 规则要求 Code Owner 审核。业务入口适配 PR 合并后，相应路径的保护才生效。CODEOWNERS 是审批保护，不是不可绕过的执行沙箱：有权限的管理员仍可更改规则，业务测试脚本本身的变更仍需正常代码审查。检查结果继续由独立的 GitHub Actions job 提供，不增加 DevPortal 检查或结果聚合。

@@ -66,6 +66,13 @@ jobs:
     name: golangci-lint
     runs-on: ubuntu-latest
     steps:
+      - name: 读取统一 CI 配置
+        id: policy
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-policy@main
+        with:
+          kind: golangci-lint
+          legacy-inputs: ${{ toJSON(inputs) }}
+
       - name: 开始资源采样
         uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
         with:
@@ -73,9 +80,9 @@ jobs:
 
       - name: 准备路径过滤配置
         id: filter-config
-        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (steps.policy.outputs.skip-draft-pr == 'false' || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
         env:
-          CHANGED_PATHS: ${{ inputs.changed-paths }}
+          CHANGED_PATHS: ${{ steps.policy.outputs.changed-paths }}
         run: |
           python3 <<'PY' >> "$GITHUB_OUTPUT"
           import os
@@ -98,7 +105,7 @@ jobs:
       - name: 检查是否有 Go 相关改动
         id: check
         uses: dorny/paths-filter@v4.0.3
-        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (steps.policy.outputs.skip-draft-pr == 'false' || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
         with:
           filters: ${{ steps.filter-config.outputs.filters }}
           token: ${{ github.token }}
@@ -110,7 +117,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${{ inputs.skip-draft-pr }}" = "true" ] &&
+          if [ "${{ steps.policy.outputs.skip-draft-pr }}" = "true" ] &&
             [ "${{ github.event_name }}" = "pull_request" ] &&
             [ "${{ github.event.pull_request.draft }}" = "true" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -134,7 +141,7 @@ jobs:
 
       - name: 恢复 Git LFS 缓存
         id: lfs
-        if: steps.plan.outputs.run == 'true' && inputs.lfs-include != ''
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.lfs-include != ''
         uses: actions/cache/restore@v6.1.0
         with:
           path: .git/lfs
@@ -142,10 +149,10 @@ jobs:
           restore-keys: lfs-${{ github.repository }}-
 
       - name: 拉取 Git LFS 文件
-        if: steps.plan.outputs.run == 'true' && inputs.lfs-include != ''
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.lfs-include != ''
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          LFS_INCLUDE: ${{ inputs.lfs-include }}
+          LFS_INCLUDE: ${{ steps.policy.outputs.lfs-include }}
         run: |
           set -euo pipefail
           auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
@@ -155,32 +162,32 @@ jobs:
           git lfs pull --include="$LFS_INCLUDE"
 
       - name: 保存 Git LFS 缓存
-        if: steps.plan.outputs.run == 'true' && inputs.lfs-include != '' && steps.lfs.outputs.cache-hit != 'true'
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.lfs-include != '' && steps.lfs.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6.1.0
         with:
           path: .git/lfs
           key: ${{ steps.lfs.outputs.cache-primary-key }}
 
       - uses: actions/setup-go@v7.0.0
-        if: steps.plan.outputs.run == 'true' && inputs.go-version-file == ''
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.go-version-file == ''
         with:
           cache: true
-          cache-dependency-path: ${{ inputs.cache-dependency-path }}
-          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: ${{ steps.policy.outputs.cache-dependency-path }}
+          go-version: ${{ steps.policy.outputs.go-version }}
 
       - uses: actions/setup-go@v7.0.0
-        if: steps.plan.outputs.run == 'true' && inputs.go-version-file != ''
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.go-version-file != ''
         with:
           cache: true
-          cache-dependency-path: ${{ inputs.cache-dependency-path }}
-          go-version-file: ${{ inputs.go-version-file }}
+          cache-dependency-path: ${{ steps.policy.outputs.cache-dependency-path }}
+          go-version-file: ${{ steps.policy.outputs.go-version-file }}
 
       - name: 准备 CGO 参数
-        if: steps.plan.outputs.run == 'true' && (inputs.cgo-enabled != '' || inputs.cgo-ldflags != '' || inputs.cgo-library-dir != '')
+        if: steps.plan.outputs.run == 'true' && (steps.policy.outputs.cgo-enabled != '' || steps.policy.outputs.cgo-ldflags != '' || steps.policy.outputs.cgo-library-dir != '')
         env:
-          INPUT_CGO_ENABLED: ${{ inputs.cgo-enabled }}
-          INPUT_CGO_LDFLAGS: ${{ inputs.cgo-ldflags }}
-          INPUT_CGO_LIBRARY_DIR: ${{ inputs.cgo-library-dir }}
+          INPUT_CGO_ENABLED: ${{ steps.policy.outputs.cgo-enabled }}
+          INPUT_CGO_LDFLAGS: ${{ steps.policy.outputs.cgo-ldflags }}
+          INPUT_CGO_LIBRARY_DIR: ${{ steps.policy.outputs.cgo-library-dir }}
         run: |
           set -euo pipefail
 
@@ -199,8 +206,8 @@ jobs:
         if: steps.plan.outputs.run == 'true'
         uses: golangci/golangci-lint-action@v9.3.0
         with:
-          version: ${{ inputs.golangci-version }}
-          working-directory: ${{ inputs.working-directory }}
+          version: ${{ steps.policy.outputs.golangci-version }}
+          working-directory: ${{ steps.policy.outputs.working-directory }}
           github-token: ${{ github.token }}
 
       - name: 跳过 Go 代码检查

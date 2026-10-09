@@ -1,0 +1,20 @@
+name: CI 配置检查
+on:
+  push:
+    branches: [main]
+    paths: ['actions/ci-policy/**', '.github/workflows/ci-policy-check.yml']
+  pull_request:
+    paths: ['actions/ci-policy/**', '.github/workflows/ci-policy-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy:
+    name: CI 配置检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: 验证集中配置与覆盖防护
+        run: python3 -m unittest discover -s actions/ci-policy
