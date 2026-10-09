@@ -61,7 +61,7 @@ main 恢复。其他普通服务由 Dev Portal 创建持久发布记录并串行
 
 ## CI 运行环境与资源
 
-Go、静态检查、前端、迁移和 PR 规范工作流统一维护稳定工具版本，当前为 Go 1.27.2、Node 26.11.1、pnpm 12.10.1、golangci-lint 2.14.0、migrate 4.20.1。检查临时数据库使用固定 digest 的 PostgreSQL 18.6 / SQL Server 2025；不修改业务数据库。
+Go、静态检查、前端、迁移和 PR 规范工作流统一维护稳定工具版本，当前为 Go 1.27.2、Node 26.11.1、pnpm 12.10.1、golangci-lint 2.14.0、migrate 4.20.1。检查临时数据库默认使用固定 digest 的 PostgreSQL 18.6 / SQL Server 2025；UniAuth Go 测试按集中兼容配置使用 PostgreSQL 17.11，不修改业务数据库。UniAuth 当前 GoFrame pgsql 驱动 v2.9.1 会在 PostgreSQL 18 的非空约束与主键约束并存时丢失主键信息，导致 InsertAndGetId 失败。数据库大版本升级须在业务驱动兼容升级合并、完整测试通过后更新集中配置。
 
 各检查按原有路径和草稿策略选择执行，原有 race、迁移契约及检查命令保留。Go 编译并发对应托管 runner 实际 CPU 数量；`clean-unused-sdks` 默认开启，Go 检查清理不使用的 Android、.NET、GHC SDK；需要这些 SDK 的调用方显式传入 false，释放 race 链接所需磁盘。
 

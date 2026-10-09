@@ -110,6 +110,9 @@ outputs:
   predicate-quantifier:
     description: predicate-quantifier
     value: ${{ steps.resolve.outputs.predicate-quantifier }}
+  postgres-image:
+    description: 集中配置的 PostgreSQL 测试镜像
+    value: ${{ steps.resolve.outputs.postgres-image }}
   prepare-command:
     description: prepare-command
     value: ${{ steps.resolve.outputs.prepare-command }}

@@ -28,6 +28,13 @@ class PolicyTest(unittest.TestCase):
             self.assertIn(variable, result['prepare-command'])
         self.assertIn('-race', result['test-flags'])
 
+    def test_database_version_follows_repository_compatibility(self):
+        uniauth = resolve('CUHKSZ-ITSO-Dev/UniAuth', 'go-test',
+                          {'postgres-image': 'postgres:18'}, self.policy)
+        other = resolve('CUHKSZ-ITSO-Dev/open-platform', 'go-test', {}, self.policy)
+        self.assertTrue(uniauth['postgres-image'].startswith('postgres:17.11@sha256:'))
+        self.assertTrue(other['postgres-image'].startswith('postgres:18.6@sha256:'))
+
     def test_unknown_managed_profile_fails_closed(self):
         with self.assertRaises(ValueError):
             resolve('CUHKSZ-ITSO-Dev/Chat', 'frontend-check', {'check-command': 'true'}, self.policy)
