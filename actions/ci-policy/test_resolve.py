@@ -32,10 +32,23 @@ class PolicyTest(unittest.TestCase):
         result = resolve('CUHKSZ-ITSO-Dev/UniAuth', 'go-test', {}, self.policy)
         for variable in ['FEEDBACK_TEST_LINK', 'QUOTA_POOL_TEST_LINK',
                          'MIGRATION_TEST_DATABASE_URL', 'PGADAPTER_TEST_DATABASE_URL',
-                         'UNIAUTH_DATABASE_TEST']:
+                         'UNIAUTH_DATABASE_TEST', 'PSQL_WATCHER_TEST_DATABASE_URL',
+                         'DASHBOARD_TEST_DATABASE_URL']:
             self.assertIn(variable, result['prepare-command'])
         self.assertIn('echo "UNIAUTH_DATABASE_TEST=1" >> "$GITHUB_ENV"', result['prepare-command'])
         self.assertIn('-race', result['test-flags'])
+
+    def test_new_pr_database_regressions_export_the_prepared_database(self):
+        for repo, variables, database in [
+            ('UniAuth', ['PSQL_WATCHER_TEST_DATABASE_URL', 'DASHBOARD_TEST_DATABASE_URL'],
+             'uniauth_go_test'),
+            ('open-platform', ['BINDINGS_TEST_DATABASE_URL'], 'open_platform_go_test'),
+        ]:
+            result = resolve(f'CUHKSZ-ITSO-Dev/{repo}', 'go-test',
+                             {'prepare-command': 'true'}, self.policy)
+            for variable in variables:
+                self.assertRegex(result['prepare-command'],
+                                 rf'echo "{variable}=postgres(?:ql)?://[^\n]+/{database}\?sslmode=disable" >> "\$GITHUB_ENV"')
 
     def test_database_version_follows_repository_compatibility(self):
         uniauth = resolve('CUHKSZ-ITSO-Dev/UniAuth', 'go-test',
