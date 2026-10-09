@@ -35,7 +35,8 @@ def sample(folder, workspace):
     baseline = storage(workspace)
     result = {'sampleSeconds': 5, 'samples': 0,
               'memoryUsedPeakBytes': 0, 'cpuBusyPeakCores': 0,
-              'diskFreeStartBytes': baseline, 'diskFreeMinBytes': baseline}
+              'diskFreeStartBytes': baseline, 'diskFreeMinBytes': baseline,
+              'diskFreeHighBytes': baseline, 'diskAllocatedPeakBytes': 0}
     while True:
         current = cpu_ticks(Path('/proc/stat').read_text())
         total, idle = current[0] - previous[0], current[1] - previous[1]
@@ -45,7 +46,11 @@ def sample(folder, workspace):
         previous = current
         result['memoryUsedPeakBytes'] = max(result['memoryUsedPeakBytes'],
             memory_used(Path('/proc/meminfo').read_text()))
-        result['diskFreeMinBytes'] = min(result['diskFreeMinBytes'], storage(workspace))
+        free = storage(workspace)
+        result['diskFreeHighBytes'] = max(result['diskFreeHighBytes'], free)
+        result['diskFreeMinBytes'] = min(result['diskFreeMinBytes'], free)
+        result['diskAllocatedPeakBytes'] = max(result['diskAllocatedPeakBytes'],
+            result['diskFreeHighBytes'] - free)
         result['samples'] += 1
         write(folder / 'summary.json', result)
         if (folder / 'stop').exists():
@@ -91,7 +96,7 @@ def main():
         report.write(f"| CPU 使用峰值 | {result['cpuBusyPeakCores']:.2f} 核 |\n")
         report.write(f"| 机器已用内存峰值 | {result['memoryUsedPeakBytes'] / 2**30:.2f} GiB |\n")
         report.write(f"| 磁盘剩余最低值 | {result['diskFreeMinBytes'] / 2**30:.2f} GiB |\n")
-        report.write(f"| 磁盘增量峰值 | {result['diskConsumedPeakBytes'] / 2**30:.2f} GiB |\n")
+        report.write(f"| 释放空间后磁盘占用增量峰值 | {result['diskAllocatedPeakBytes'] / 2**30:.2f} GiB |\n")
 
 
 if __name__ == '__main__':

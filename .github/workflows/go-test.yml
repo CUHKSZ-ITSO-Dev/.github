@@ -71,7 +71,7 @@ on:
       clean-unused-sdks:
         required: false
         type: boolean
-        default: false
+        default: true
       skip-draft-pr:
         required: false
         type: boolean

@@ -63,6 +63,6 @@ main 恢复。其他普通服务由 Dev Portal 创建持久发布记录并串行
 
 Go、静态检查、前端、迁移和 PR 规范工作流统一维护稳定工具版本，当前为 Go 1.27.2、Node 26.11.1、pnpm 12.10.1、golangci-lint 2.14.0、migrate 4.20.1。检查临时数据库使用固定 digest 的 PostgreSQL 18.6 / SQL Server 2025；不修改业务数据库。
 
-各检查按原有路径和草稿策略选择执行，原有 race、迁移契约及检查命令保留。Go 编译并发对应托管 runner 实际 CPU 数量；`clean-unused-sdks` 默认关闭，Chat 可显式清理不使用的 Android、.NET、GHC SDK，释放 race 链接所需磁盘。
+各检查按原有路径和草稿策略选择执行，原有 race、迁移契约及检查命令保留。Go 编译并发对应托管 runner 实际 CPU 数量；`clean-unused-sdks` 默认开启，Go 检查清理不使用的 Android、.NET、GHC SDK；需要这些 SDK 的调用方显式传入 false，释放 race 链接所需磁盘。
 
 `actions/ci-resources` 每 5 秒采样机器 CPU、内存及磁盘余量，在步骤日志输出 `CI_RESOURCE_SUMMARY` 并写入运行摘要，用于依据实际消耗选择执行环境。采样包含 runner 和临时数据库，不能当成单一检查进程的峰值。GitHub 原生检查各自保留结果，DevPortal 部署状态只反映开发服交付。
