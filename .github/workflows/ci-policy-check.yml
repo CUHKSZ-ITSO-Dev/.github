@@ -2,19 +2,47 @@ name: CI 配置检查
 on:
   push:
     branches: [main]
-    paths: ['actions/ci-policy/**', '.github/workflows/ci-policy-check.yml']
+    paths: ['actions/**', '.github/workflows/**']
   pull_request:
-    paths: ['actions/ci-policy/**', '.github/workflows/ci-policy-check.yml']
+    paths: ['actions/**', '.github/workflows/**']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   policy:
     name: CI 配置检查
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    concurrency:
+      group: shared-policy-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - name: 验证集中配置与覆盖防护
-        run: python3 -m unittest discover -s actions/ci-policy
+      - name: 验证集中配置、资源采样与磁盘清理
+        run: |
+          python3 -m unittest discover -s actions/ci-policy
+          python3 -m unittest discover -s actions/ci-resources
+          python3 -m unittest discover -s actions/go-disk-space
+      - name: 准备提交信息与工作流列表
+        run: |
+          python3 <<'PY'
+          import json, os
+          from pathlib import Path
+          tmp = Path(os.environ['RUNNER_TEMP'])
+          (tmp / 'commits.json').write_text(json.dumps([{'sha': 'fixture', 'commit': {'message': 'fix(ci): 校验公共检查'}}]))
+          (tmp / 'workflows.json').write_text(json.dumps([str(path) for path in Path('.github/workflows').glob('*.yml')]))
+          PY
+      - name: 验证原生提交检查执行环境
+        uses: ./actions/check-pr-commits
+        with:
+          commits-file: ${{ runner.temp }}/commits.json
+      - name: 验证路径范围与提交规范
+        env:
+          NODE_PATH: ${{ github.workspace }}/actions/check-pr-commits/node_modules
+        run: npm test --prefix actions/check-pr-commits
+      - name: 校验全部共享工作流
+        uses: ./actions/check-workflows
+        with:
+          files-json: ${{ runner.temp }}/workflows.json

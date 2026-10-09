@@ -68,6 +68,10 @@ on:
         required: false
         type: string
         default: ""
+      minimum-free-disk-gib:
+        required: false
+        type: number
+        default: 20
       clean-unused-sdks:
         required: false
         type: boolean
@@ -85,6 +89,9 @@ jobs:
   test:
     name: Go Test
     runs-on: ubuntu-latest
+    concurrency:
+      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: 读取统一 CI 配置
         id: policy
@@ -99,6 +106,7 @@ jobs:
           phase: start
 
       - uses: actions/checkout@v7.0.1
+        if: github.event_name == 'push'
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -151,19 +159,19 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 准备托管 runner 容量
+      - uses: actions/checkout@v7.0.1
+        if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
+        with:
+          persist-credentials: false
+
+      - name: 设置 Go 编译并发
         if: steps.plan.outputs.run == 'true'
-        env:
-          CLEAN_UNUSED_SDKS: ${{ steps.policy.outputs.clean-unused-sdks }}
         run: |
           set -euo pipefail
           if [ "$RUNNER_ENVIRONMENT" = "github-hosted" ] && [ "$RUNNER_OS" = "Linux" ]; then
             # Go 并行编译按实际 CPU 数量执行；保留调用方的测试参数和 race。
             echo "GOMAXPROCS=$(nproc)" >> "$GITHUB_ENV"
             echo "GOFLAGS=${GOFLAGS:-} -p=$(nproc)" >> "$GITHUB_ENV"
-            if [ "$CLEAN_UNUSED_SDKS" = "true" ]; then
-              sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
-            fi
           fi
           df -h "$GITHUB_WORKSPACE"
 
@@ -214,6 +222,11 @@ jobs:
           cache: false
           go-version-file: ${{ steps.policy.outputs.working-directory }}/go.mod
 
+      - name: 读取 Go 缓存版本
+        id: go-cache
+        if: steps.plan.outputs.run == 'true'
+        run: echo "version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+
       - name: 恢复 Go 缓存
         if: steps.plan.outputs.run == 'true'
         uses: actions/cache@v6.1.0
@@ -221,10 +234,16 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-test-${{ runner.os }}-${{ hashFiles(steps.policy.outputs.cache-dependency-path) }}-${{ github.sha }}
+          key: go-test-${{ runner.os }}-${{ steps.go-cache.outputs.version }}-${{ hashFiles(steps.policy.outputs.cache-dependency-path) }}-${{ github.sha }}
           restore-keys: |
-            go-test-${{ runner.os }}-${{ hashFiles(steps.policy.outputs.cache-dependency-path) }}-
-            go-test-${{ runner.os }}-
+            go-test-${{ runner.os }}-${{ steps.go-cache.outputs.version }}-${{ hashFiles(steps.policy.outputs.cache-dependency-path) }}-
+            go-test-${{ runner.os }}-${{ steps.go-cache.outputs.version }}-
+
+      - name: 按余量准备编译空间
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.clean-unused-sdks == 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: CUHKSZ-ITSO-Dev/.github/actions/go-disk-space@main
+        with:
+          minimum-free-gib: ${{ steps.policy.outputs.minimum-free-disk-gib }}
 
       - name: 准备测试数据库参数
         if: steps.plan.outputs.run == 'true'

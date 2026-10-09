@@ -63,7 +63,7 @@ main 恢复。其他普通服务由 Dev Portal 创建持久发布记录并串行
 
 Go、静态检查、前端、迁移和 PR 规范工作流统一维护稳定工具版本，当前为 Go 1.27.2、Node 26.11.1、pnpm 12.10.1、golangci-lint 2.14.0、migrate 4.20.1。检查临时数据库默认使用固定 digest 的 PostgreSQL 18.6 / SQL Server 2025；UniAuth Go 测试按集中兼容配置使用 PostgreSQL 17.11，不修改业务数据库。UniAuth 当前 GoFrame pgsql 驱动 v2.9.1 会在 PostgreSQL 18 的非空约束与主键约束并存时丢失主键信息，导致 InsertAndGetId 失败。数据库大版本升级须在业务驱动兼容升级合并、完整测试通过后更新集中配置。
 
-各检查按原有路径和草稿策略选择执行，原有 race、迁移契约及检查命令保留。Go 编译并发对应托管 runner 实际 CPU 数量；`clean-unused-sdks` 默认开启，Go 检查清理不使用的 Android、.NET、GHC SDK；需要这些 SDK 的调用方显式传入 false，释放 race 链接所需磁盘。
+各检查按路径和草稿策略选择执行，race、迁移契约及检查命令保留。Go 编译并发对应托管 runner 实际 CPU 数量；`clean-unused-sdks` 默认开启，但仅在缓存恢复后磁盘不足时，依次清理不使用的 .NET、GHC、Android SDK，达到目标余量立即停止。Chat、open-platform 与未纳管仓库保留 20 GiB 目标；UniAuth 按已完成检查的实测峰值使用 8 GiB。需要这些 SDK 的未纳管调用方可显式传入 false。
 
 `actions/ci-resources` 每 5 秒采样机器 CPU、内存及磁盘余量，在步骤日志输出 `CI_RESOURCE_SUMMARY` 并写入运行摘要，用于依据实际消耗选择执行环境。采样包含 runner 和临时数据库，不能当成单一检查进程的峰值。GitHub 原生检查各自保留结果，DevPortal 部署状态只反映开发服交付。
 
@@ -74,3 +74,11 @@ Chat、UniAuth、open-platform 的 Go 测试、lint、前端与迁移检查配�
 业务仓库保留 GitHub 所需的事件触发入口及共享工作流引用，删除工具版本、检查命令、数据库参数和路径过滤等 `with` 配置。仓库差异、集成测试环境变量、race 检测和迁移回滚验证均在集中配置中保留。此次收口不批量升级版本；兼容性升级应先通过真实检查再更新集中配置。
 
 业务入口与集中配置沿用现有代码审查规则，不额外配置 CODEOWNERS。集中配置按仓库分别维护测试目录、数据库版本、准备命令、路径过滤、LFS/CGO 和前端工具要求；共享执行器只负责通用步骤。业务新增测试环境、模块或依赖时同步更新对应仓库配置，不能把所有仓库强行套用同一组参数。未纳入集中配置的仓库继续使用原有调用参数。检查结果由独立的 GitHub Actions job 提供，不增加 DevPortal 检查或结果聚合。
+
+### 检查范围与等待时间
+
+- Chat、UniAuth、open-platform 仅修改业务 CI 调用入口时，不再启动 Go 测试、lint、前端依赖安装或迁移数据库；PR 规范检查通过 actionlint 验证改动的工作流。检查名称保持不变，无相关改动的检查成功返回，避免 required check 一直等待。集中配置或共享执行器修改在本仓库运行配置、路径选择、提交规范、磁盘策略测试和 actionlint；修改实际测试行为后还须按受影响仓库验证完整测试。
+- Go 测试关注源码、模块依赖、工作区、迁移 SQL、测试夹具及仓库使用的嵌入资源；linter 配置仅触发 lint。UniAuth lint 不再因普通后端文档变化而运行。源码或依赖变化仍运行完整包测试，保留跨包回归及 race；不按单个修改文件猜测依赖范围。
+- PR 规范检查和本仓库配置检查使用 `ubuntu-slim`。提交消息沿用 commitlint 19 的 conventional 规则及仓库 `commitlint.config.mjs`，使用锁定的 npm 依赖缓存，去掉 Docker 镜像下载、完整 Git 历史和短任务资源采样。提交数量仍限制在 1–30 个，描述小节要求不变。
+- Go 测试在 PR 无相关改动时不 checkout 业务代码；执行测试时使用浅 checkout。Go 缓存按工具链版本区分；Python 检查开启 uv 缓存。前端、Python 与未纳管仓库原有自定义命令和路径参数保留；Redis/RabbitMQ 集成测试继续需要完整 runner 和服务，不能改用 slim。
+- 各检查只取消同一 PR、同一调用工作流和模块的过期任务，push 不自动取消。GitHub 托管 runner 的排队仍由 GitHub 分配；`ubuntu-slim` 同样受账户并发限制，轻量化不能保证零等待。

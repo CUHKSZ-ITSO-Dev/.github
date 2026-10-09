@@ -1,0 +1,14 @@
+name: 准备 Go 编译磁盘空间
+description: 缓存恢复后按余量清理不使用的 SDK，足够时立即返回
+inputs:
+  minimum-free-gib:
+    description: 目标剩余空间 GiB
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        MINIMUM_FREE_GIB: ${{ inputs.minimum-free-gib }}
+      run: python3 "$ACTION_PATH/prepare.py"

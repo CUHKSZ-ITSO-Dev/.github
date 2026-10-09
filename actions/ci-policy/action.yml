@@ -8,6 +8,9 @@ inputs:
     required: true
     description: 未纳管仓库原有参数
 outputs:
+  minimum-free-disk-gib:
+    description: 缓存恢复后目标剩余磁盘空间 GiB
+    value: ${{ steps.resolve.outputs.minimum-free-disk-gib }}
   always-run-paths:
     description: always-run-paths
     value: ${{ steps.resolve.outputs.always-run-paths }}

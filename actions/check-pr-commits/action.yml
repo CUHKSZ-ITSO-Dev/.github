@@ -1,0 +1,32 @@
+name: 检查 PR 提交信息
+description: 使用原 commitlint 规则检查 API 获取的提交，不拉取 Docker 镜像
+inputs:
+  commits-file:
+    description: GitHub API 提交列表 JSON 文件
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: source
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        echo "path=$ACTION_PATH" >> "$GITHUB_OUTPUT"
+        echo "lock=$(sha256sum "$ACTION_PATH/package-lock.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6.1.0
+      id: cache
+      with:
+        path: ${{ steps.source.outputs.path }}/node_modules
+        key: pr-commitlint-${{ runner.os }}-${{ runner.arch }}-${{ steps.source.outputs.lock }}
+    - shell: bash
+      if: steps.cache.outputs.cache-hit != 'true'
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: npm ci --prefix "$ACTION_PATH" --ignore-scripts --no-audit --no-fund
+    - shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        COMMITS_FILE: ${{ inputs.commits-file }}
+        NODE_PATH: ${{ steps.source.outputs.path }}/node_modules
+      run: node "$ACTION_PATH/check.mjs" "$COMMITS_FILE"

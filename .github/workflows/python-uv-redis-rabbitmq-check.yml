@@ -31,6 +31,9 @@ jobs:
   check:
     name: 常规 Python uv Redis RabbitMQ 检查
     runs-on: ubuntu-latest
+    concurrency:
+      group: shared-python-uv-redis-rabbitmq-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     services:
       redis:
         image: redis:7-alpine
@@ -55,6 +58,8 @@ jobs:
 
       - name: 安装 uv
         uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
 
       - name: 安装 Python
         uses: actions/setup-python@v5

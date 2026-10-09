@@ -1,0 +1,33 @@
+name: 校验工作流
+description: 只对改动的工作流运行 actionlint；固定版本并校验下载摘要
+inputs:
+  files-json:
+    description: 工作流路径列表 JSON 文件
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: 安装 actionlint
+      shell: bash
+      run: |
+        set -euo pipefail
+        tool_dir="$RUNNER_TEMP/actionlint"
+        mkdir -p "$tool_dir"
+        cd "$tool_dir"
+        base=https://github.com/rhysd/actionlint/releases/download/v1.7.12
+        curl --fail --silent --show-error --location --retry 3 "$base/actionlint_1.7.12_linux_amd64.tar.gz" -o actionlint_1.7.12_linux_amd64.tar.gz
+        curl --fail --silent --show-error --location --retry 3 "$base/actionlint_1.7.12_checksums.txt" -o checksums.txt
+        sha256sum --check --ignore-missing checksums.txt
+        tar -xzf actionlint_1.7.12_linux_amd64.tar.gz actionlint
+        echo "$tool_dir" >> "$GITHUB_PATH"
+    - shell: bash
+      env:
+        FILES_JSON: ${{ inputs.files-json }}
+      run: |
+        python3 <<'PY'
+        import json, os, subprocess
+        paths = json.load(open(os.environ['FILES_JSON'], encoding='utf-8'))
+        if paths:
+            # shellcheck/pyflakes installations differ by runner; validate Actions syntax here.
+            subprocess.run(['actionlint', '-shellcheck=', '-pyflakes=', '--', *paths], check=True)
+        PY

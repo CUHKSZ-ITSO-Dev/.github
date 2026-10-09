@@ -17,6 +17,13 @@ class PolicyTest(unittest.TestCase):
         self.assertIn('**/*.go', result['changed-paths'])
         self.assertTrue(result['clean-unused-sdks'])
 
+    def test_disk_headroom_is_central_and_repository_specific(self):
+        for repo, expected in [('Chat', 20), ('open-platform', 20), ('UniAuth', 8)]:
+            result = resolve(f'CUHKSZ-ITSO-Dev/{repo}', 'go-test',
+                             {'minimum-free-disk-gib': 1, 'clean-unused-sdks': False}, self.policy)
+            self.assertEqual(result['minimum-free-disk-gib'], expected)
+            self.assertTrue(result['clean-unused-sdks'])
+
     def test_repository_case_cannot_bypass_policy(self):
         result = resolve('cuhksz-itso-dev/chat', 'go-test', {'test-flags': ''}, self.policy)
         self.assertIn('-race', result['test-flags'])

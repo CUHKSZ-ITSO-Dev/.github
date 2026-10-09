@@ -1,0 +1,16 @@
+{
+  "name": "itso-pr-commit-check",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test.mjs scope.test.mjs"
+  },
+  "dependencies": {
+    "@commitlint/config-conventional": "19.1.0",
+    "@commitlint/lint": "19.1.0",
+    "@commitlint/load": "19.2.0"
+  },
+  "devDependencies": {
+    "picomatch": "4.0.3"
+  }
+}

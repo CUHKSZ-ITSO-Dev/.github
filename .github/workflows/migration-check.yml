@@ -99,6 +99,9 @@ jobs:
   migration:
     name: 常规迁移检查
     runs-on: ubuntu-latest
+    concurrency:
+      group: shared-migration-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: 读取统一 CI 配置
         id: policy
