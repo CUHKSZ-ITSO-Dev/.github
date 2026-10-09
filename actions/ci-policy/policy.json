@@ -171,8 +171,8 @@
       "frontend-check": {
         "node-version": "24",
         "pnpm-version": "12.2.1",
-        "ignored-paths": "**/*.md\n",
-        "always-run-paths": ".github/workflows/static-build-check.yml\n",
+        "ignored-paths": "**/*.md\n.github/workflows/**\n",
+        "always-run-paths": "",
         "predicate-quantifier": "every",
         "profiles": {
           "lint": {

@@ -80,7 +80,7 @@ UI 的前端入口无 `with` 参数，仅调用 `frontend-suite.yml`；组合层
 
 ### 检查范围与等待时间
 
-- Chat、UniAuth、open-platform 仅修改业务 CI 调用入口时，不再启动 Go 测试、lint、前端依赖安装或迁移数据库；PR 规范检查通过 actionlint 验证改动的工作流。检查名称保持不变，无相关改动的检查成功返回，避免 required check 一直等待。集中配置或共享执行器修改在本仓库运行配置、路径选择、提交规范、磁盘策略测试和 actionlint；修改实际测试行为后还须按受影响仓库验证完整测试。
+- Chat、UniAuth、open-platform、UI 仅修改业务 CI 调用入口时，不再启动 Go 测试、lint、前端依赖安装或迁移数据库；PR 规范检查通过 actionlint 验证改动的工作流。检查名称保持不变，无相关改动的检查成功返回，避免 required check 一直等待。集中配置或共享执行器修改在本仓库运行配置、路径选择、提交规范、磁盘策略测试和 actionlint；修改实际测试行为后还须按受影响仓库验证完整测试。
 - Go 测试关注源码、模块依赖、工作区、迁移 SQL、测试夹具及仓库使用的嵌入资源；linter 配置仅触发 lint。UniAuth lint 不再因普通后端文档变化而运行。源码或依赖变化仍运行完整包测试，保留跨包回归及 race；不按单个修改文件猜测依赖范围。
 - PR 规范检查和本仓库配置检查使用 `ubuntu-slim`。提交消息沿用 commitlint 19 的 conventional 规则及仓库 `commitlint.config.mjs`，使用锁定的 npm 依赖缓存，去掉 Docker 镜像下载、完整 Git 历史和短任务资源采样。提交数量仍限制在 1–30 个，描述小节要求不变。
 - Go 测试在 PR 无相关改动时不 checkout 业务代码；执行测试时使用浅 checkout。Go 缓存按工具链版本区分；Python 检查开启 uv 缓存。前端、Python 与未纳管仓库原有自定义命令和路径参数保留；Redis/RabbitMQ 集成测试继续需要完整 runner 和服务，不能改用 slim。

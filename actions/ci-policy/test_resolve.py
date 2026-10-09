@@ -80,7 +80,8 @@ class PolicyTest(unittest.TestCase):
                              self.policy, profile)
             self.assertEqual(result['node-version'], '24')
             self.assertEqual(result['pnpm-version'], '12.2.1')
-            self.assertEqual(result['ignored-paths'], '**/*.md\n')
+            self.assertEqual(result['ignored-paths'], '**/*.md\n.github/workflows/**\n')
+            self.assertEqual(result['always-run-paths'], '')
             self.assertTrue(result['skip-draft-pr'])
             if profile == 'lint':
                 self.assertEqual(result['check-command'].splitlines(),
