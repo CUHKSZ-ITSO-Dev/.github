@@ -142,13 +142,24 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: 计算 Git LFS 内容缓存键
+        id: lfs-key
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.lfs-include != ''
+        env:
+          LFS_INCLUDE: ${{ steps.policy.outputs.lfs-include }}
+        run: |
+          set -euo pipefail
+          # 缓存对象由 LFS OID 决定，普通代码提交不应复制相同二进制缓存。
+          objects=$(git lfs ls-files --long --include="$LFS_INCLUDE" | awk '{print $1}' | LC_ALL=C sort -u)
+          echo "hash=$(printf '%s' "$objects" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: 恢复 Git LFS 缓存
         id: lfs
         if: steps.plan.outputs.run == 'true' && steps.policy.outputs.lfs-include != ''
         uses: actions/cache/restore@v6.1.0
         with:
           path: .git/lfs
-          key: lfs-${{ github.repository }}-${{ github.sha }}
+          key: lfs-${{ github.repository }}-${{ steps.lfs-key.outputs.hash }}
           restore-keys: lfs-${{ github.repository }}-
 
       - name: 拉取 Git LFS 文件

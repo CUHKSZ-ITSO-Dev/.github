@@ -82,3 +82,5 @@ Chat、UniAuth、open-platform 的 Go 测试、lint、前端与迁移检查配�
 - PR 规范检查和本仓库配置检查使用 `ubuntu-slim`。提交消息沿用 commitlint 19 的 conventional 规则及仓库 `commitlint.config.mjs`，使用锁定的 npm 依赖缓存，去掉 Docker 镜像下载、完整 Git 历史和短任务资源采样。提交数量仍限制在 1–30 个，描述小节要求不变。
 - Go 测试在 PR 无相关改动时不 checkout 业务代码；执行测试时使用浅 checkout。Go 缓存按工具链版本区分；Python 检查开启 uv 缓存。前端、Python 与未纳管仓库原有自定义命令和路径参数保留；Redis/RabbitMQ 集成测试继续需要完整 runner 和服务，不能改用 slim。
 - 各检查只取消同一 PR、同一调用工作流和模块的过期任务，push 不自动取消。GitHub 托管 runner 的排队仍由 GitHub 分配；`ubuntu-slim` 同样受账户并发限制，轻量化不能保证零等待。
+
+Go Test 缓存以操作系统、架构、Go 版本和依赖锁定文件为键，不再为每个提交 SHA 上传一份相同依赖及编译缓存。依赖未变且缓存命中时不重复保存；Go 仍根据源码及编译参数判断哪些包需要重新编译。新键首次使用可恢复相同依赖的旧缓存，避免迁移期间无谓的冷编译。Git LFS 缓存按所需文件的对象 OID 集合生成键，Go Test 与 lint 复用相同二进制对象，普通代码变更不再制造重复 LFS 缓存。PR 缓存仍受 GitHub 分支作用域限制，无法在不同 PR 之间任意共享；不通过增加工作流、付费 runner 或提高缓存上限绕过这个限制。
