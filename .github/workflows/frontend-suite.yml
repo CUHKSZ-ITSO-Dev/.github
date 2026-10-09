@@ -1,0 +1,33 @@
+name: 前端检查组合
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint:
+    name: Lint
+    uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/frontend-check.yml@main
+    with:
+      check-profile: lint
+
+  chromium:
+    name: Chromium E2E
+    uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/frontend-check.yml@main
+    with:
+      check-profile: chromium
+
+  firefox:
+    name: Firefox E2E
+    uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/frontend-check.yml@main
+    with:
+      check-profile: firefox
+
+  webkit:
+    name: WebKit E2E
+    uses: CUHKSZ-ITSO-Dev/.github/.github/workflows/frontend-check.yml@main
+    with:
+      check-profile: webkit

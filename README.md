@@ -13,6 +13,7 @@
 | `.github/workflows/stale-pr.yml` | 统一标记和关闭不活跃 PR，并维护 `stale` / `no-stale` 标签说明。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/golangci-lint.yml` | 统一 Go 静态检查，支持 LFS、CGO、子目录模块和 glob 变更过滤。 | `Chat`、`open-platform`、`UniAuth` |
 | `.github/workflows/go-test.yml` | 统一单检查 Go 测试，支持路径跳过、LFS、CGO 和可选测试数据库。 | `Chat`、`open-platform`、`UniAuth` |
+| `.github/workflows/frontend-suite.yml` | 组合 Lint 与 Chromium、Firefox、WebKit 四项并行检查，业务入口无需参数。 | `UI` |
 | `.github/workflows/frontend-check.yml` | 统一前端检查，支持 Node、pnpm/npm、缓存、Playwright、glob 变更过滤和自定义检查命令。 | `UI`、`UniAuth`、`Gateway` |
 | `.github/workflows/python-uv-check.yml` | 统一 Python uv 检查，支持 uv 安装依赖、路径过滤、环境变量注入和自定义检查命令。 | `WebSearch`、`doc-intelligence` |
 | `.github/workflows/python-uv-redis-rabbitmq-check.yml` | 统一带 Redis / RabbitMQ 服务的 Python uv 集成检查。 | `doc-intelligence` |
@@ -71,7 +72,7 @@ Go、静态检查、前端、迁移和 PR 规范工作流统一维护稳定工�
 
 Chat、UniAuth、open-platform、UI 的 Go 测试、lint、前端与迁移检查配置统一放在 `actions/ci-policy/policy.json`。共享工作流从自身 action 的可信 checkout 读取配置，按 `github.repository` 和检查类型选择；上述仓库传入的旧 `with` 参数不覆盖集中配置。其余调用仓库保持原有参数行为，逐仓迁移时再加入清单。
 
-UI 的前端入口仅传 `check-profile: lint|chromium|firefox|webkit`，分别提供 Lint（静态检查、i18n、单测、构建）和三个引擎的全量 E2E；Node 24、pnpm 12.2.1、路径过滤和执行命令均由集中配置管理。旧 UI 入口按原有浏览器字段映射到固定兼容配置：Chromium 保留原先完整前端检查，Firefox / WebKit 保留各自 E2E；旧命令与版本参数不覆盖集中配置。四项新检查与 PR 规范检查均为 UI main 的必需检查，旧分支需合入新的薄入口才能提供新检查名称。
+UI 的前端入口无 `with` 参数，仅调用 `frontend-suite.yml`；组合层在公共仓库选择四个固定配置，通用 `frontend-check.yml` 执行器从集中配置读取细则。分别提供 Lint（静态检查、i18n、单测、构建）和三个引擎的全量 E2E；Node 24、pnpm 12.2.1、路径过滤和执行命令均由集中配置管理。旧 UI 入口按原有浏览器字段映射到固定兼容配置：Chromium 保留原先完整前端检查，Firefox / WebKit 保留各自 E2E；旧命令与版本参数不覆盖集中配置。`CI / Lint / 前端检查`、`CI / Chromium E2E / 前端检查`、`CI / Firefox E2E / 前端检查`、`CI / WebKit E2E / 前端检查` 与 PR 规范检查均为 UI main 的必需检查，旧分支需合入新的薄入口才能提供新检查名称。
 
 业务仓库保留 GitHub 所需的事件触发入口及共享工作流引用，删除工具版本、检查命令、数据库参数和路径过滤等 `with` 配置。仓库差异、集成测试环境变量、race 检测和迁移回滚验证均在集中配置中保留。此次收口不批量升级版本；兼容性升级应先通过真实检查再更新集中配置。
 
