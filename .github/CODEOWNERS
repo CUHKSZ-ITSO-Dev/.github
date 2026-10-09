@@ -1,4 +1,0 @@
-# CI 入口、执行器和集中配置变更需要维护者审阅。
-/.github/workflows/ @dsanying
-/.github/CODEOWNERS @dsanying
-/actions/ @dsanying
