@@ -66,7 +66,8 @@ jobs:
     name: 前端检查
     runs-on: ubuntu-latest
     concurrency:
-      group: shared-frontend-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
+      # 同一调用工作流可并行检查多个引擎，只取消同一引擎的过期任务。
+      group: shared-frontend-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-${{ inputs.playwright-browsers || 'none' }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: 读取统一 CI 配置
