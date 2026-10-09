@@ -3,6 +3,11 @@ name: 前端检查
 on:
   workflow_call:
     inputs:
+      check-profile:
+        required: false
+        type: string
+        default: ""
+        description: 集中配置的 lint、chromium、firefox 或 webkit 检查
       working-directory:
         required: false
         type: string
@@ -67,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       # 同一调用工作流可并行检查多个引擎，只取消同一引擎的过期任务。
-      group: shared-frontend-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-${{ inputs.playwright-browsers || 'none' }}
+      group: shared-frontend-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-${{ inputs.check-profile || inputs.playwright-browsers || 'none' }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: 读取统一 CI 配置
@@ -75,6 +80,7 @@ jobs:
         uses: CUHKSZ-ITSO-Dev/.github/actions/ci-policy@main
         with:
           kind: frontend-check
+          profile: ${{ inputs.check-profile }}
           legacy-inputs: ${{ toJSON(inputs) }}
 
       - name: 开始资源采样

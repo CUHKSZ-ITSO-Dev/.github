@@ -69,7 +69,9 @@ Go、静态检查、前端、迁移和 PR 规范工作流统一维护稳定工�
 
 ### 集中管理检查配置
 
-Chat、UniAuth、open-platform 的 Go 测试、lint、前端与迁移检查配置统一放在 `actions/ci-policy/policy.json`。共享工作流从自身 action 的可信 checkout 读取配置，按 `github.repository` 和检查类型选择；上述仓库传入的旧 `with` 参数不覆盖集中配置。其余调用仓库保持原有参数行为，逐仓迁移时再加入清单。
+Chat、UniAuth、open-platform、UI 的 Go 测试、lint、前端与迁移检查配置统一放在 `actions/ci-policy/policy.json`。共享工作流从自身 action 的可信 checkout 读取配置，按 `github.repository` 和检查类型选择；上述仓库传入的旧 `with` 参数不覆盖集中配置。其余调用仓库保持原有参数行为，逐仓迁移时再加入清单。
+
+UI 的前端入口仅传 `check-profile: lint|chromium|firefox|webkit`，分别提供 Lint（静态检查、i18n、单测、构建）和三个引擎的全量 E2E；Node 24、pnpm 12.2.1、路径过滤和执行命令均由集中配置管理。旧 UI 入口按原有浏览器字段映射到固定兼容配置：Chromium 保留原先完整前端检查，Firefox / WebKit 保留各自 E2E；旧命令与版本参数不覆盖集中配置。四项新检查与 PR 规范检查均为 UI main 的必需检查，旧分支需合入新的薄入口才能提供新检查名称。
 
 业务仓库保留 GitHub 所需的事件触发入口及共享工作流引用，删除工具版本、检查命令、数据库参数和路径过滤等 `with` 配置。仓库差异、集成测试环境变量、race 检测和迁移回滚验证均在集中配置中保留。此次收口不批量升级版本；兼容性升级应先通过真实检查再更新集中配置。
 
@@ -81,6 +83,6 @@ Chat、UniAuth、open-platform 的 Go 测试、lint、前端与迁移检查配�
 - Go 测试关注源码、模块依赖、工作区、迁移 SQL、测试夹具及仓库使用的嵌入资源；linter 配置仅触发 lint。UniAuth lint 不再因普通后端文档变化而运行。源码或依赖变化仍运行完整包测试，保留跨包回归及 race；不按单个修改文件猜测依赖范围。
 - PR 规范检查和本仓库配置检查使用 `ubuntu-slim`。提交消息沿用 commitlint 19 的 conventional 规则及仓库 `commitlint.config.mjs`，使用锁定的 npm 依赖缓存，去掉 Docker 镜像下载、完整 Git 历史和短任务资源采样。提交数量仍限制在 1–30 个，描述小节要求不变。
 - Go 测试在 PR 无相关改动时不 checkout 业务代码；执行测试时使用浅 checkout。Go 缓存按工具链版本区分；Python 检查开启 uv 缓存。前端、Python 与未纳管仓库原有自定义命令和路径参数保留；Redis/RabbitMQ 集成测试继续需要完整 runner 和服务，不能改用 slim。
-- 各检查只取消同一 PR、同一调用工作流和模块的过期任务，前端检查另按 Playwright 浏览器集合区分，避免并行引擎互相取消；push 不自动取消。GitHub 托管 runner 的排队仍由 GitHub 分配；`ubuntu-slim` 同样受账户并发限制，轻量化不能保证零等待。
+- 各检查只取消同一 PR、同一调用工作流和模块的过期任务，前端检查另按检查配置（旧入口按 Playwright 浏览器集合）区分，避免并行引擎互相取消；push 不自动取消。GitHub 托管 runner 的排队仍由 GitHub 分配；`ubuntu-slim` 同样受账户并发限制，轻量化不能保证零等待。
 
 Go Test 缓存以操作系统、架构、Go 版本和依赖锁定文件为键，不再为每个提交 SHA 上传一份相同依赖及编译缓存。依赖未变且缓存命中时不重复保存；Go 仍根据源码及编译参数判断哪些包需要重新编译。新键首次使用可恢复相同依赖的旧缓存，避免迁移期间无谓的冷编译。Git LFS 缓存按所需文件的对象 OID 集合生成键，Go Test 与 lint 复用相同二进制对象，普通代码变更不再制造重复 LFS 缓存。PR 缓存仍受 GitHub 分支作用域限制，无法在不同 PR 之间任意共享；不通过增加工作流、付费 runner 或提高缓存上限绕过这个限制。

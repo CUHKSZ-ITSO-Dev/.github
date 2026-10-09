@@ -166,6 +166,43 @@
         "cgo-library-dir": "lib/linux-amd64",
         "binary-check-command": "cat > manifest/config/config.yaml <<'YAML'\nserver:\n  httpPort: 8032\n  openapiPath: \"/api.json\"\n  swaggerPath: \"/swagger\"\nlogger:\n  level: \"debug\"\n  stdout: true\ndatabase:\n  default:\n    link: \"pgsql:postgres:postgres@tcp(localhost:5432)/open_platform_migration_app_check\"\n    timezone: \"Asia/Shanghai\"\n    createdAt: \"created_at\"\n    updatedAt: \"updated_at\"\n    debug: false\nclient:\n  uniauth:\n    url: \"http://127.0.0.1:8004\"\njaeger:\n  serviceName: \"open-platform\"\n  endpoint: \"\"\n  traceToken: \"\"\nYAML\ngrep -q 'Name:  migrateCommandName' internal/cmd/cmd.go\ngrep -q 'RegisterSubcommands() error' internal/cmd/cmd.go\ngrep -q 'cmd.RegisterSubcommands()' main.go\ngrep -q 'case \"status\"' internal/cmd/cmd.go\ngrep -q 'case \"baseline\"' internal/cmd/cmd.go\ngrep -q 'case \"down\"' internal/cmd/cmd.go\ngrep -q 'case \"force\"' internal/cmd/cmd.go\ngrep -q 'case \"goto\", \"to\"' internal/cmd/cmd.go\ngo run main.go migrate version\ngo run main.go migrate status\ngo run main.go migrate up\ngo run main.go migrate status\npsql -h localhost -p 5432 -U postgres -d open_platform_migration_app_check \\\n  -v ON_ERROR_STOP=1 \\\n  -f scripts/assert_postgres_schema.sql\ngo run main.go migrate force -1\ngo run main.go migrate baseline\ngo run main.go migrate status\ngo test ./internal/cmd -run TestMigration -count=1\ngo test ./internal/service/migration -run TestUpWithGoFrameDefaultConnection -count=1\n"
       }
+    },
+    "CUHKSZ-ITSO-Dev/UI": {
+      "frontend-check": {
+        "node-version": "24",
+        "pnpm-version": "12.2.1",
+        "ignored-paths": "**/*.md\n",
+        "always-run-paths": ".github/workflows/static-build-check.yml\n",
+        "predicate-quantifier": "every",
+        "profiles": {
+          "lint": {
+            "playwright-browsers": "",
+            "check-command": "pnpm run lint\npnpm run i18n:check\npnpm run test\npnpm run build\n"
+          },
+          "chromium": {
+            "playwright-browsers": "chromium",
+            "check-command": "pnpm run test:e2e --browser=chromium\n"
+          },
+          "firefox": {
+            "playwright-browsers": "firefox",
+            "check-command": "pnpm run test:e2e --browser=firefox\n"
+          },
+          "webkit": {
+            "playwright-browsers": "webkit",
+            "check-command": "pnpm run test:e2e --browser=webkit\n"
+          },
+          "legacy-chromium": {
+            "playwright-browsers": "chromium",
+            "check-command": "pnpm run lint\npnpm run i18n:check\npnpm run test\npnpm run build\npnpm run test:e2e\n"
+          }
+        },
+        "legacy-profiles": {
+          "": "lint",
+          "chromium": "legacy-chromium",
+          "firefox": "firefox",
+          "webkit": "webkit"
+        }
+      }
     }
   }
 }

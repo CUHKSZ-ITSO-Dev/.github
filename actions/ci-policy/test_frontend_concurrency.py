@@ -4,7 +4,7 @@ import unittest
 
 
 class FrontendConcurrencyTest(unittest.TestCase):
-    def group(self, browser, pr=293, directory='.', sha='old'):
+    def group(self, browser, pr=293, directory='.', sha='old', profile=''):
         workflow = (Path(__file__).resolve().parents[2] /
                     '.github/workflows/frontend-check.yml').read_text()
         template = re.search(r'^      group: (.+)$', workflow, re.MULTILINE).group(1)
@@ -16,6 +16,7 @@ class FrontendConcurrencyTest(unittest.TestCase):
             'github.sha': sha,
             'inputs.working-directory': directory,
             'inputs.playwright-browsers': browser,
+            'inputs.check-profile': profile,
         }
 
         def resolve(match):
@@ -32,6 +33,13 @@ class FrontendConcurrencyTest(unittest.TestCase):
     def test_parallel_browsers_do_not_cancel_each_other(self):
         groups = {self.group(browser) for browser in ['chromium', 'firefox', 'webkit']}
         self.assertEqual(len(groups), 3)
+
+    def test_parallel_profiles_do_not_cancel_each_other(self):
+        groups = {self.group('', profile=profile)
+                  for profile in ['lint', 'chromium', 'firefox', 'webkit']}
+        self.assertEqual(len(groups), 4)
+        self.assertEqual(self.group('', profile='firefox', sha='old'),
+                         self.group('', profile='firefox', sha='new'))
 
     def test_new_commit_still_supersedes_same_browser(self):
         self.assertEqual(self.group('chromium', sha='old'),

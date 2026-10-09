@@ -4,6 +4,10 @@ inputs:
   kind:
     required: true
     description: 检查类型
+  profile:
+    required: false
+    default: ""
+    description: 集中配置中的检查配置名称
   legacy-inputs:
     required: true
     description: 未纳管仓库原有参数
@@ -138,5 +142,6 @@ runs:
     shell: bash
     env:
       POLICY_KIND: ${{ inputs.kind }}
+      POLICY_PROFILE: ${{ inputs.profile }}
       LEGACY_INPUTS: ${{ inputs.legacy-inputs }}
     run: python3 "$GITHUB_ACTION_PATH/resolve.py"

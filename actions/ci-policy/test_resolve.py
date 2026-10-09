@@ -67,10 +67,51 @@ class PolicyTest(unittest.TestCase):
             resolve('CUHKSZ-ITSO-Dev/Chat', 'frontend-check', {'check-command': 'true'}, self.policy)
 
     def test_unmanaged_repository_keeps_existing_behavior(self):
-        result = resolve('CUHKSZ-ITSO-Dev/UI', 'frontend-check',
+        result = resolve('CUHKSZ-ITSO-Dev/Example', 'frontend-check',
                          {'check-command': 'pnpm run test:e2e', 'node-version': '24'}, self.policy)
         self.assertEqual(result['check-command'], 'pnpm run test:e2e')
         self.assertEqual(result['node-version'], '24')
+
+    def test_ui_profiles_preserve_checks_and_ignore_caller_overrides(self):
+        for profile in ['lint', 'chromium', 'firefox', 'webkit']:
+            result = resolve('cuhksz-itso-dev/ui', 'frontend-check',
+                             {'check-command': 'true', 'node-version': '99',
+                              'ignored-paths': '**/*', 'skip-draft-pr': False},
+                             self.policy, profile)
+            self.assertEqual(result['node-version'], '24')
+            self.assertEqual(result['pnpm-version'], '12.2.1')
+            self.assertEqual(result['ignored-paths'], '**/*.md\n')
+            self.assertTrue(result['skip-draft-pr'])
+            if profile == 'lint':
+                self.assertEqual(result['check-command'].splitlines(),
+                                 ['pnpm run lint', 'pnpm run i18n:check',
+                                  'pnpm run test', 'pnpm run build'])
+                self.assertEqual(result['playwright-browsers'], '')
+            else:
+                self.assertEqual(result['playwright-browsers'], profile)
+                self.assertEqual(result['check-command'].strip(),
+                                 f'pnpm run test:e2e --browser={profile}')
+
+    def test_old_ui_entries_keep_full_chromium_and_other_browsers(self):
+        for browser in ['chromium', 'firefox', 'webkit', '']:
+            result = resolve('CUHKSZ-ITSO-Dev/UI', 'frontend-check',
+                             {'playwright-browsers': browser, 'check-command': 'true'}, self.policy)
+            self.assertEqual(result['playwright-browsers'], browser)
+            if browser == 'chromium':
+                self.assertIn('pnpm run lint', result['check-command'])
+                self.assertIn('pnpm run build', result['check-command'])
+                self.assertEqual(result['check-command'].splitlines()[-1], 'pnpm run test:e2e')
+            elif browser:
+                self.assertEqual(result['check-command'].strip(), f'pnpm run test:e2e --browser={browser}')
+
+    def test_unknown_frontend_profiles_fail_closed(self):
+        for repo, profile in [('UI', 'unknown'), ('UI', 'legacy-chromium'),
+                              ('UniAuth', 'chromium'), ('Example', 'lint')]:
+            with self.assertRaises(ValueError):
+                resolve(f'CUHKSZ-ITSO-Dev/{repo}', 'frontend-check', {}, self.policy, profile)
+        with self.assertRaises(ValueError):
+            resolve('CUHKSZ-ITSO-Dev/UI', 'frontend-check',
+                    {'playwright-browsers': 'unknown'}, self.policy)
 
     def test_migration_guards_remain_enabled(self):
         result = resolve('CUHKSZ-ITSO-Dev/open-platform', 'migration-check',
