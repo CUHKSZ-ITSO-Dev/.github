@@ -125,7 +125,7 @@
       },
       "golangci-lint": {
         "working-directory": "uniauth-gf",
-        "go-version": "1.26.2",
+        "go-version-file": "uniauth-gf/go.mod",
         "cache-dependency-path": "uniauth-gf/go.sum",
         "changed-paths": "uniauth-gf/**/*.go\nuniauth-gf/go.mod\nuniauth-gf/go.sum\nuniauth-gf/.golangci.yml\nuniauth-gf/.golangci.yaml\nuniauth-gf/manifest/sql/postgres/**\nuniauth-gf/resource/**\ngo.work\ngo.work.sum\n"
       }

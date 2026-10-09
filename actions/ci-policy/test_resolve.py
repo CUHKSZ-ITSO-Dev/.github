@@ -44,6 +44,11 @@ class PolicyTest(unittest.TestCase):
         self.assertTrue(uniauth['postgres-image'].startswith('postgres:17.11@sha256:'))
         self.assertTrue(other['postgres-image'].startswith('postgres:18.6@sha256:'))
 
+    def test_uniauth_lint_uses_the_checked_out_module_toolchain(self):
+        result = resolve('CUHKSZ-ITSO-Dev/UniAuth', 'golangci-lint',
+                         {'go-version': '1.26.2', 'go-version-file': ''}, self.policy)
+        self.assertEqual(result['go-version-file'], 'uniauth-gf/go.mod')
+
     def test_unknown_managed_profile_fails_closed(self):
         with self.assertRaises(ValueError):
             resolve('CUHKSZ-ITSO-Dev/Chat', 'frontend-check', {'check-command': 'true'}, self.policy)
