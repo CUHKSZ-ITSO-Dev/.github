@@ -12,6 +12,11 @@ jobs:
     name: PR 规范检查
     runs-on: ubuntu-latest
     steps:
+      - name: 开始资源采样
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
+        with:
+          phase: start
+
       - name: 检查 PR 描述
         uses: CUHKSZ-ITSO-Dev/.github/actions/check-pr-body@main
         with:
@@ -33,12 +38,18 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: 检查 Commit Message
-        uses: wagoid/commitlint-github-action@v6
+        uses: wagoid/commitlint-github-action@v6.2.1
         with:
-          github-token: ${{ github.token }}
+          token: ${{ github.token }}
+
+      - name: 输出资源采样
+        if: always()
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
+        with:
+          phase: finish

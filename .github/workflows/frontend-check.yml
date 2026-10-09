@@ -10,11 +10,11 @@ on:
       node-version:
         required: false
         type: string
-        default: "22"
+        default: "26.11.1"
       pnpm-version:
         required: false
         type: string
-        default: "10.15.1"
+        default: "12.10.1"
       package-manager:
         required: false
         type: string
@@ -66,6 +66,11 @@ jobs:
     name: 前端检查
     runs-on: ubuntu-latest
     steps:
+      - name: 开始资源采样
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
+        with:
+          phase: start
+
       - name: 准备路径过滤配置
         id: filter-config
         if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
@@ -97,7 +102,7 @@ jobs:
           print("EOF")
           PY
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
         if: github.event_name == 'push'
         with:
           fetch-depth: 0
@@ -105,7 +110,7 @@ jobs:
 
       - name: 检查是否有前端相关改动
         id: check
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@v4.0.3
         if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
         with:
           filters: ${{ steps.filter-config.outputs.filters }}
@@ -137,20 +142,20 @@ jobs:
             echo "PR 无前端相关改动，跳过前端检查，门禁返回成功。"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
         if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
         with:
           persist-credentials: false
 
       - name: 安装 pnpm
         if: steps.plan.outputs.run == 'true' && inputs.package-manager == 'pnpm'
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@v6.1.0
         with:
           version: ${{ inputs.pnpm-version }}
 
       - name: 安装 Node.js
         if: steps.plan.outputs.run == 'true'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: ${{ inputs.node-version }}
           cache: ${{ inputs.package-manager }}
@@ -174,3 +179,9 @@ jobs:
       - name: 跳过前端检查
         if: steps.plan.outputs.run != 'true'
         run: echo "无需执行前端检查。"
+
+      - name: 输出资源采样
+        if: always()
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
+        with:
+          phase: finish

@@ -1,0 +1,14 @@
+name: CI 资源采样
+description: 记录实际检查的机器资源峰值和磁盘余量，不改变检查结果
+inputs:
+  phase:
+    description: start 或 finish
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RESOURCE_PHASE: ${{ inputs.phase }}
+        RESOURCE_ACTION_PATH: ${{ github.action_path }}
+      run: python3 "$RESOURCE_ACTION_PATH/resources.py" "$RESOURCE_PHASE"

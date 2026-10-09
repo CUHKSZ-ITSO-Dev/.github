@@ -10,7 +10,7 @@ on:
       go-version:
         required: false
         type: string
-        default: ""
+        default: "1.27.2"
       go-version-file:
         required: false
         type: string
@@ -68,6 +68,10 @@ on:
         required: false
         type: string
         default: ""
+      clean-unused-sdks:
+        required: false
+        type: boolean
+        default: false
       skip-draft-pr:
         required: false
         type: boolean
@@ -82,7 +86,12 @@ jobs:
     name: Go Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - name: 开始资源采样
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
+        with:
+          phase: start
+
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -107,7 +116,7 @@ jobs:
       - name: 检查相关改动
         id: changed
         if: github.event_name == 'pull_request' || github.event_name == 'push'
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@v4.0.3
         with:
           filters: ${{ steps.filter-config.outputs.filters }}
           token: ${{ github.token }}
@@ -135,10 +144,26 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: 准备托管 runner 容量
+        if: steps.plan.outputs.run == 'true'
+        env:
+          CLEAN_UNUSED_SDKS: ${{ inputs.clean-unused-sdks }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_ENVIRONMENT" = "github-hosted" ] && [ "$RUNNER_OS" = "Linux" ]; then
+            # Go 并行编译按实际 CPU 数量执行；保留调用方的测试参数和 race。
+            echo "GOMAXPROCS=$(nproc)" >> "$GITHUB_ENV"
+            echo "GOFLAGS=${GOFLAGS:-} -p=$(nproc)" >> "$GITHUB_ENV"
+            if [ "$CLEAN_UNUSED_SDKS" = "true" ]; then
+              sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+            fi
+          fi
+          df -h "$GITHUB_WORKSPACE"
+
       - name: 恢复 Git LFS 缓存
         id: lfs
         if: steps.plan.outputs.run == 'true' && inputs.lfs-include != ''
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6.1.0
         with:
           path: .git/lfs
           key: lfs-${{ github.repository }}-${{ github.sha }}
@@ -159,24 +184,24 @@ jobs:
 
       - name: 保存 Git LFS 缓存
         if: steps.plan.outputs.run == 'true' && inputs.lfs-include != '' && steps.lfs.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6.1.0
         with:
           path: .git/lfs
           key: ${{ steps.lfs.outputs.cache-primary-key }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7.0.0
         if: steps.plan.outputs.run == 'true' && inputs.go-version-file != ''
         with:
           cache: false
           go-version-file: ${{ inputs.go-version-file }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7.0.0
         if: steps.plan.outputs.run == 'true' && inputs.go-version-file == '' && inputs.go-version != ''
         with:
           cache: false
           go-version: ${{ inputs.go-version }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7.0.0
         if: steps.plan.outputs.run == 'true' && inputs.go-version-file == '' && inputs.go-version == ''
         with:
           cache: false
@@ -184,7 +209,7 @@ jobs:
 
       - name: 恢复 Go 缓存
         if: steps.plan.outputs.run == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.cache/go-build
@@ -241,7 +266,7 @@ jobs:
             -e POSTGRES_DB="${{ inputs.database-name }}" \
             -e POSTGRES_USER=postgres \
             -e POSTGRES_PASSWORD=postgres \
-            -p 5432:5432 postgres:17
+            -p 5432:5432 postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
           for _ in {1..30}; do
             if docker exec go-test-postgres pg_isready -U postgres -d "${{ inputs.database-name }}" >/dev/null 2>&1; then
               if [ -n "${{ inputs.app-database-name }}" ]; then
@@ -272,7 +297,7 @@ jobs:
           docker run -d --name go-test-sqlserver \
             -e ACCEPT_EULA=Y \
             -e 'MSSQL_SA_PASSWORD=DevPass123!' \
-            -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+            -p 1433:1433 mcr.microsoft.com/mssql/server:2025-latest@sha256:2b5b581621126574f3d1f75e78d3eebe8d05aedb59ad0cfdf9aa42cb0634d726
           for _ in {1..60}; do
             if docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
               docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q "CREATE DATABASE [${{ inputs.database-name }}]"
@@ -303,3 +328,9 @@ jobs:
           set -euo pipefail
           # shellcheck disable=SC2086 # test-flags 是受控 workflow 输入，需要拆分为 Go 参数。
           go test ${TEST_FLAGS} ./...
+
+      - name: 输出资源采样
+        if: always()
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
+        with:
+          phase: finish
