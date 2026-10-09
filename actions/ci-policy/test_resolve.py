@@ -31,8 +31,10 @@ class PolicyTest(unittest.TestCase):
     def test_database_integration_is_preserved(self):
         result = resolve('CUHKSZ-ITSO-Dev/UniAuth', 'go-test', {}, self.policy)
         for variable in ['FEEDBACK_TEST_LINK', 'QUOTA_POOL_TEST_LINK',
-                         'MIGRATION_TEST_DATABASE_URL', 'PGADAPTER_TEST_DATABASE_URL']:
+                         'MIGRATION_TEST_DATABASE_URL', 'PGADAPTER_TEST_DATABASE_URL',
+                         'UNIAUTH_DATABASE_TEST']:
             self.assertIn(variable, result['prepare-command'])
+        self.assertIn('echo "UNIAUTH_DATABASE_TEST=1" >> "$GITHUB_ENV"', result['prepare-command'])
         self.assertIn('-race', result['test-flags'])
 
     def test_database_version_follows_repository_compatibility(self):
