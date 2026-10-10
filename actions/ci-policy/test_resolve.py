@@ -78,7 +78,10 @@ class PolicyTest(unittest.TestCase):
                         'docs/规范/前端/README.md', 'docs/规范/manifest.json',
                         'docs/维护手册.md', 'AGENTS.md',
                         '.github/workflows/frontend-lint.yml',
-                        '.github/workflows/frontend-build.yml']:
+                        '.github/workflows/frontend-build.yml',
+                        '.github/frontend-check-contract.json',
+                        'scripts/check_frontend_ci_policy.py',
+                        'scripts/test_frontend_ci_policy.py']:
             self.assertTrue(any(fnmatchcase(changed, pattern) for pattern in patterns), changed)
 
     def test_unknown_managed_profile_fails_closed(self):

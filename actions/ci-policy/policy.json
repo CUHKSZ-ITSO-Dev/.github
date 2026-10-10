@@ -125,7 +125,7 @@
         "node-version": "26.10.0",
         "pnpm-version": "12.8.1",
         "cache-dependency-path": "uniauth-vite/pnpm-lock.yaml",
-        "changed-paths": "uniauth-vite/**\ndocs/规范/前端/**\ndocs/规范/manifest.json\ndocs/维护手册.md\nAGENTS.md\n.github/workflows/frontend-lint.yml\n.github/workflows/frontend-build.yml\n",
+        "changed-paths": "uniauth-vite/**\ndocs/规范/前端/**\ndocs/规范/manifest.json\ndocs/维护手册.md\nAGENTS.md\n.github/workflows/frontend-lint.yml\n.github/workflows/frontend-build.yml\n.github/frontend-check-contract.json\nscripts/check_frontend_ci_policy.py\nscripts/test_frontend_ci_policy.py\n",
         "check-command": "pnpm run check\n",
         "playwright-browsers": "chromium"
       },
