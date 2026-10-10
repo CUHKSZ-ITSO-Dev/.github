@@ -22,6 +22,7 @@ jobs:
           persist-credentials: false
       - name: 验证集中配置、资源采样与磁盘清理
         run: |
+          python3 -m unittest discover -s actions/frontend-runtime
           python3 -m unittest discover -s actions/ci-policy
           python3 -m unittest discover -s actions/ci-resources
           python3 -m unittest discover -s actions/go-disk-space

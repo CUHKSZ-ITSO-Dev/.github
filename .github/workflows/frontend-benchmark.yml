@@ -1,0 +1,77 @@
+name: 前端浏览器基准
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: UI 的待验证提交 SHA
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    name: ${{ matrix.browser }} / ${{ matrix.workers }} workers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        browser: [chromium, firefox, webkit]
+        workers: [1, 2]
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: shared
+          persist-credentials: false
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: CUHKSZ-ITSO-Dev/UI
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.ITSO_AUTOMATION_TOKEN }}
+          path: candidate
+          persist-credentials: false
+      - name: 读取集中工具配置
+        id: config
+        env:
+          CHECK_BROWSER: ${{ matrix.browser }}
+          CHECK_WORKERS: ${{ matrix.workers }}
+        run: |
+          python3 <<'PY'
+          import json, os
+          from pathlib import Path
+          policy = json.loads(Path('shared/actions/ci-policy/policy.json').read_text())
+          config = policy['repositories']['CUHKSZ-ITSO-Dev/UI']['frontend-check']
+          image = config['benchmark-image']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key in ['node-version', 'pnpm-version']:
+                  output.write(f'{key}={config[key]}\n')
+              output.write(f'image={image}\n')
+              output.write(f'command=pnpm exec playwright test --browser={os.environ["CHECK_BROWSER"]} --workers={os.environ["CHECK_WORKERS"]} --retries=0 --forbid-only --reporter=line,json\n')
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: ${{ steps.config.outputs.pnpm-version }}
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: ${{ steps.config.outputs.node-version }}
+          cache: pnpm
+          cache-dependency-path: candidate/pnpm-lock.yaml
+      - name: 安装依赖
+        working-directory: candidate
+        run: pnpm install --frozen-lockfile
+      - name: 验证完整浏览器用例
+        uses: ./shared/actions/frontend-runtime
+        with:
+          image: ${{ steps.config.outputs.image }}
+          working-directory: candidate
+          command: ${{ steps.config.outputs.command }}
+      - name: 保存测试证据
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-${{ matrix.browser }}-${{ matrix.workers }}
+          path: |
+            candidate/test-results
+            candidate/playwright-report
+          retention-days: 7

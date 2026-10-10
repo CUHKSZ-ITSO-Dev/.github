@@ -1,0 +1,21 @@
+name: 前端浏览器执行环境
+description: 在预装浏览器的固定镜像中复用 runner 的 Node、pnpm 和已安装依赖。
+inputs:
+  image:
+    required: true
+    description: 带 digest 的 Playwright 官方镜像
+  working-directory:
+    default: '.'
+    description: 前端目录
+  command:
+    required: true
+    description: 集中配置的完整检查命令
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        FRONTEND_IMAGE: ${{ inputs.image }}
+        FRONTEND_DIRECTORY: ${{ inputs.working-directory }}
+        FRONTEND_COMMAND: ${{ inputs.command }}
+      run: python3 "$GITHUB_ACTION_PATH/run.py"
