@@ -46,7 +46,8 @@
       "install-command": "pnpm install --frozen-lockfile",
       "playwright-browsers": "",
       "check-command": "pnpm run lint",
-      "skip-draft-pr": true
+      "skip-draft-pr": true,
+      "playwright-image": ""
     },
     "migration-check": {
       "database-kind": "",
@@ -177,23 +178,24 @@
         "profiles": {
           "lint": {
             "playwright-browsers": "",
-            "check-command": "pnpm run lint\npnpm run i18n:check\npnpm run test\npnpm run build\n"
+            "check-command": "pnpm run lint\npnpm run i18n:check\npnpm run test\npnpm run build\n",
+            "playwright-image": ""
           },
           "chromium": {
             "playwright-browsers": "chromium",
-            "check-command": "pnpm run test:e2e --browser=chromium\n"
+            "check-command": "pnpm run test:e2e --browser=chromium --workers=2 --forbid-only --reporter=line,json\n"
           },
           "firefox": {
             "playwright-browsers": "firefox",
-            "check-command": "pnpm run test:e2e --browser=firefox\n"
+            "check-command": "pnpm run test:e2e --browser=firefox --workers=2 --forbid-only --reporter=line,json\n"
           },
           "webkit": {
             "playwright-browsers": "webkit",
-            "check-command": "pnpm run test:e2e --browser=webkit\n"
+            "check-command": "pnpm run test:e2e --browser=webkit --workers=2 --forbid-only --reporter=line,json\n"
           },
           "legacy-chromium": {
             "playwright-browsers": "chromium",
-            "check-command": "pnpm run lint\npnpm run i18n:check\npnpm run test\npnpm run build\npnpm run test:e2e\n"
+            "check-command": "pnpm run lint\npnpm run i18n:check\npnpm run test\npnpm run build\npnpm run test:e2e --workers=2 --forbid-only --reporter=line,json\n"
           }
         },
         "legacy-profiles": {
@@ -202,7 +204,7 @@
           "firefox": "firefox",
           "webkit": "webkit"
         },
-        "benchmark-image": "mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
+        "playwright-image": "mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
       }
     }
   }

@@ -184,12 +184,30 @@ jobs:
         run: ${{ steps.policy.outputs.install-command }}
 
       - name: 安装 Playwright 浏览器
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-browsers != ''
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-browsers != '' && steps.policy.outputs.playwright-image == ''
         working-directory: ${{ steps.policy.outputs.working-directory }}
         run: pnpm exec playwright install --with-deps ${{ steps.policy.outputs.playwright-browsers }}
 
+      - name: 在预装浏览器环境执行完整检查
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-image != ''
+        uses: CUHKSZ-ITSO-Dev/.github/actions/frontend-runtime@main
+        with:
+          image: ${{ steps.policy.outputs.playwright-image }}
+          working-directory: ${{ steps.policy.outputs.working-directory }}
+          command: ${{ steps.policy.outputs.check-command }}
+
+      - name: 保存浏览器测试证据
+        if: always() && steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-image != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-${{ inputs.check-profile || inputs.playwright-browsers || 'default' }}
+          path: |
+            ${{ steps.policy.outputs.working-directory }}/test-results
+            ${{ steps.policy.outputs.working-directory }}/playwright-report
+          retention-days: 7
+
       - name: 执行前端检查
-        if: steps.plan.outputs.run == 'true'
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-image == ''
         working-directory: ${{ steps.policy.outputs.working-directory }}
         run: ${{ steps.policy.outputs.check-command }}
 

@@ -76,7 +76,8 @@ class PolicyTest(unittest.TestCase):
         for profile in ['lint', 'chromium', 'firefox', 'webkit']:
             result = resolve('cuhksz-itso-dev/ui', 'frontend-check',
                              {'check-command': 'true', 'node-version': '99',
-                              'ignored-paths': '**/*', 'skip-draft-pr': False},
+                              'ignored-paths': '**/*', 'skip-draft-pr': False,
+                              'playwright-image': 'example.com/untrusted:latest'},
                              self.policy, profile)
             self.assertEqual(result['node-version'], '24')
             self.assertEqual(result['pnpm-version'], '12.2.1')
@@ -88,10 +89,12 @@ class PolicyTest(unittest.TestCase):
                                  ['pnpm run lint', 'pnpm run i18n:check',
                                   'pnpm run test', 'pnpm run build'])
                 self.assertEqual(result['playwright-browsers'], '')
+                self.assertEqual(result['playwright-image'], '')
             else:
                 self.assertEqual(result['playwright-browsers'], profile)
+                self.assertRegex(result['playwright-image'], r'^mcr\.microsoft\.com/playwright:v1\.62\.1-noble@sha256:[0-9a-f]{64}$')
                 self.assertEqual(result['check-command'].strip(),
-                                 f'pnpm run test:e2e --browser={profile}')
+                                 f'pnpm run test:e2e --browser={profile} --workers=2 --forbid-only --reporter=line,json')
 
     def test_old_ui_entries_keep_full_chromium_and_other_browsers(self):
         for browser in ['chromium', 'firefox', 'webkit', '']:
@@ -101,9 +104,9 @@ class PolicyTest(unittest.TestCase):
             if browser == 'chromium':
                 self.assertIn('pnpm run lint', result['check-command'])
                 self.assertIn('pnpm run build', result['check-command'])
-                self.assertEqual(result['check-command'].splitlines()[-1], 'pnpm run test:e2e')
+                self.assertEqual(result['check-command'].splitlines()[-1], 'pnpm run test:e2e --workers=2 --forbid-only --reporter=line,json')
             elif browser:
-                self.assertEqual(result['check-command'].strip(), f'pnpm run test:e2e --browser={browser}')
+                self.assertEqual(result['check-command'].strip(), f'pnpm run test:e2e --browser={browser} --workers=2 --forbid-only --reporter=line,json')
 
     def test_unknown_frontend_profiles_fail_closed(self):
         for repo, profile in [('UI', 'unknown'), ('UI', 'legacy-chromium'),

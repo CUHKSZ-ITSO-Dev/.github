@@ -1,10 +1,11 @@
 """Run the unchanged frontend command with preinstalled browser dependencies."""
+import json
 import os
 from pathlib import Path
 import re
 import shutil
-import time
 import subprocess
+import time
 
 
 def docker_command(image, workspace, directory, node, pnpm, uid, gid, command):
@@ -44,10 +45,19 @@ def main():
         raise ValueError(f'Playwright 版本不匹配：依赖 {installed}，镜像 {expected}；请更新集中镜像')
     started = time.monotonic()
     subprocess.run(['docker', 'pull', os.environ['FRONTEND_IMAGE']], check=True)
-    print(f'浏览器镜像准备：{time.monotonic() - started:.1f}s', flush=True)
+    pull_seconds = time.monotonic() - started
+    print(f'浏览器镜像准备：{pull_seconds:.1f}s', flush=True)
     started = time.monotonic()
-    subprocess.run(args, check=True)
-    print(f'浏览器完整检查：{time.monotonic() - started:.1f}s', flush=True)
+    try:
+        subprocess.run(args, check=True)
+    finally:
+        test_seconds = time.monotonic() - started
+        print(f'浏览器完整检查：{test_seconds:.1f}s', flush=True)
+        results_dir = Path(args[args.index('--workdir') + 1]) / 'test-results'
+        results_dir.mkdir(parents=True, exist_ok=True)
+        metrics = {'image': os.environ['FRONTEND_IMAGE'], 'pullSeconds': pull_seconds,
+                   'checkSeconds': test_seconds}
+        (results_dir / 'runtime.json').write_text(json.dumps(metrics, indent=2) + '\n')
 
 
 if __name__ == '__main__':

@@ -108,6 +108,9 @@ outputs:
   package-manager:
     description: package-manager
     value: ${{ steps.resolve.outputs.package-manager }}
+  playwright-image:
+    description: 固定 digest 的预装浏览器镜像；为空时保持原生执行
+    value: ${{ steps.resolve.outputs.playwright-image }}
   playwright-browsers:
     description: playwright-browsers
     value: ${{ steps.resolve.outputs.playwright-browsers }}

@@ -1,6 +1,10 @@
 from pathlib import Path
 import unittest
-from run import docker_command
+import os
+import subprocess
+import tempfile
+from unittest.mock import patch
+from run import docker_command, main
 
 IMAGE = 'mcr.microsoft.com/playwright:v1.62.1-noble@sha256:' + 'a' * 64
 
@@ -33,6 +37,23 @@ class RuntimeTest(unittest.TestCase):
         for directory in ['../outside', '/outside']:
             with self.assertRaises(ValueError):
                 self.command(directory=directory)
+
+
+    def test_version_mismatch_fails_before_container_execution(self):
+        env = {'FRONTEND_IMAGE': IMAGE.replace('v1.62.1', 'v1.62.2'),
+               'GITHUB_WORKSPACE': '/workspace', 'FRONTEND_DIRECTORY': 'web',
+               'FRONTEND_COMMAND': 'pnpm test:e2e'}
+        with patch.dict(os.environ, env), patch('run.shutil.which', side_effect=['/tools/node/bin/node', '/tools/pnpm/bin/pnpm']), patch('run.subprocess.check_output', return_value='1.62.1\n'), patch('run.subprocess.run') as execute:
+            with self.assertRaisesRegex(ValueError, '版本不匹配'):
+                main()
+            execute.assert_not_called()
+
+    def test_browser_failure_is_not_converted_to_success(self):
+        env = {'FRONTEND_IMAGE': IMAGE, 'GITHUB_WORKSPACE': '/workspace',
+               'FRONTEND_DIRECTORY': 'web', 'FRONTEND_COMMAND': 'pnpm test:e2e'}
+        with tempfile.TemporaryDirectory() as workspace, patch.dict(os.environ, env | {'GITHUB_WORKSPACE': workspace}), patch('run.shutil.which', side_effect=['/tools/node/bin/node', '/tools/pnpm/bin/pnpm']), patch('run.subprocess.check_output', return_value='1.62.1\n'), patch('run.subprocess.run', side_effect=[None, subprocess.CalledProcessError(1, ['docker'])]):
+            with self.assertRaises(subprocess.CalledProcessError):
+                main()
 
 
 if __name__ == '__main__':

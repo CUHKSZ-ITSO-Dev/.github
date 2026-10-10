@@ -42,7 +42,7 @@ jobs:
           from pathlib import Path
           policy = json.loads(Path('shared/actions/ci-policy/policy.json').read_text())
           config = policy['repositories']['CUHKSZ-ITSO-Dev/UI']['frontend-check']
-          image = config['benchmark-image']
+          image = config['playwright-image']
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               for key in ['node-version', 'pnpm-version']:
                   output.write(f'{key}={config[key]}\n')
@@ -75,3 +75,17 @@ jobs:
             candidate/test-results
             candidate/playwright-report
           retention-days: 7
+  compare:
+    name: 用例覆盖与耗时对比
+    needs: benchmark
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: frontend-*
+          path: evidence
+      - name: 核对完整用例集合、跳过状态和首次执行结果
+        run: python3 actions/frontend-runtime/compare.py evidence >> "$GITHUB_STEP_SUMMARY"
