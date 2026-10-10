@@ -1,4 +1,5 @@
 import json
+from fnmatch import fnmatchcase
 from pathlib import Path
 import unittest
 from resolve import resolve
@@ -61,6 +62,24 @@ class PolicyTest(unittest.TestCase):
         result = resolve('CUHKSZ-ITSO-Dev/UniAuth', 'golangci-lint',
                          {'go-version': '1.26.2', 'go-version-file': ''}, self.policy)
         self.assertEqual(result['go-version-file'], 'uniauth-gf/go.mod')
+
+    def test_uniauth_frontend_caller_cannot_skip_build_or_browser_checks(self):
+        result = resolve('CUHKSZ-ITSO-Dev/UniAuth', 'frontend-check',
+                         {'check-command': 'pnpm run lint', 'node-version': '20',
+                          'pnpm-version': '10.15.1', 'playwright-browsers': '',
+                          'changed-paths': 'never/**', 'ignored-paths': '**/*'}, self.policy)
+        self.assertEqual(result['check-command'].strip(), 'pnpm run check')
+        self.assertEqual(result['playwright-browsers'], 'chromium')
+        self.assertEqual(result['node-version'], '26.10.0')
+        self.assertEqual(result['pnpm-version'], '12.8.1')
+        self.assertEqual(result['ignored-paths'], '')
+        patterns = result['changed-paths'].splitlines()
+        for changed in ['uniauth-vite/src/pages/Dashboard/index.tsx',
+                        'docs/规范/前端/README.md', 'docs/规范/manifest.json',
+                        'docs/维护手册.md', 'AGENTS.md',
+                        '.github/workflows/frontend-lint.yml',
+                        '.github/workflows/frontend-build.yml']:
+            self.assertTrue(any(fnmatchcase(changed, pattern) for pattern in patterns), changed)
 
     def test_unknown_managed_profile_fails_closed(self):
         with self.assertRaises(ValueError):

@@ -122,11 +122,12 @@
     "CUHKSZ-ITSO-Dev/UniAuth": {
       "frontend-check": {
         "working-directory": "uniauth-vite",
-        "node-version": "20",
-        "pnpm-version": "10.15.1",
+        "node-version": "26.10.0",
+        "pnpm-version": "12.8.1",
         "cache-dependency-path": "uniauth-vite/pnpm-lock.yaml",
-        "changed-paths": "uniauth-vite/**\n",
-        "check-command": "pnpm run lint\n"
+        "changed-paths": "uniauth-vite/**\ndocs/规范/前端/**\ndocs/规范/manifest.json\ndocs/维护手册.md\nAGENTS.md\n.github/workflows/frontend-lint.yml\n.github/workflows/frontend-build.yml\n",
+        "check-command": "pnpm run check\n",
+        "playwright-browsers": "chromium"
       },
       "go-test": {
         "working-directory": "uniauth-gf",
