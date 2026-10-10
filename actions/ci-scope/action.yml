@@ -1,0 +1,80 @@
+name: CI 变更范围
+description: 复用路径过滤，保留重命名前后路径；检测失败或列表不完整时执行完整检查。
+inputs:
+  changed-paths:
+    default: '**/*'
+    description: 相关路径 glob
+  ignored-paths:
+    default: ''
+    description: 排除路径 glob
+  always-run-paths:
+    default: ''
+    description: 无视排除项的强制执行路径
+  predicate-quantifier:
+    default: some
+    description: 保留调用方的路径匹配语义
+  skip-draft-pr:
+    default: 'true'
+    description: 是否跳过草稿
+  token:
+    default: '${{ github.token }}'
+    description: PR API token；为空时从 Git 获取，兼容仅 contents read 的调用方
+outputs:
+  run:
+    description: 是否执行检查
+    value: ${{ steps.plan.outputs.run }}
+  reliable:
+    description: 文件列表是否足以进行进一步选择
+    value: ${{ steps.plan.outputs.reliable }}
+  files:
+    description: 全部变更路径 JSON，包括重命名前后路径
+    value: ${{ steps.plan.outputs.files }}
+runs:
+  using: composite
+  steps:
+    - id: filters
+      shell: bash
+      env:
+        CHANGED_PATHS: ${{ inputs.changed-paths }}
+        IGNORED_PATHS: ${{ inputs.ignored-paths }}
+        ALWAYS_PATHS: ${{ inputs.always-run-paths }}
+      run: |
+        python3 <<'PY' >> "$GITHUB_OUTPUT"
+        import json, os
+        def lines(key):
+            return [p.strip() for p in os.environ[key].splitlines() if p.strip()]
+        changed = lines('CHANGED_PATHS') + ['!' + p for p in lines('IGNORED_PATHS')]
+        print('filters=' + json.dumps({'changed': changed, 'all': ['**/*']}))
+        print('always=' + json.dumps({'always': lines('ALWAYS_PATHS')}))
+        PY
+    - uses: actions/checkout@v7.0.1
+      if: (github.event_name == 'push' || (github.event_name == 'pull_request' && inputs.token == '')) && (inputs.skip-draft-pr != 'true' || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - id: changed
+      uses: dorny/paths-filter@v4.0.3
+      continue-on-error: true
+      if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr != 'true' || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      with:
+        filters: ${{ steps.filters.outputs.filters }}
+        predicate-quantifier: ${{ inputs.predicate-quantifier }}
+        list-files: json
+        token: ${{ inputs.token }}
+    # Always paths use OR, even when the main filter uses AND with exclusions.
+    - id: always
+      uses: dorny/paths-filter@v4.0.3
+      continue-on-error: true
+      if: inputs.always-run-paths != '' && steps.changed.outcome == 'success'
+      with:
+        filters: ${{ steps.filters.outputs.always }}
+        token: ${{ inputs.token }}
+    - id: plan
+      shell: bash
+      env:
+        SKIP_DRAFT: ${{ inputs.skip-draft-pr }}
+        FILTER_OUTCOME: ${{ steps.changed.outcome == 'success' && (inputs.always-run-paths == '' || steps.always.outcome == 'success') && 'success' || 'failure' }}
+        CHANGED: ${{ steps.changed.outputs.changed }}
+        ALWAYS: ${{ steps.always.outputs.always || 'false' }}
+        FILES_JSON: ${{ steps.changed.outputs.all_files }}
+      run: python3 "$GITHUB_ACTION_PATH/plan.py"

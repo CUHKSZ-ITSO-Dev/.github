@@ -1,0 +1,19 @@
+{
+  "smoke": [
+    "playwright/product-routes.spec.ts",
+    "playwright/product-routes/campus-landing.spec.ts",
+    "playwright/theme-toggle.spec.ts"
+  ],
+  "groups": [
+    {
+      "name": "announcement-preview",
+      "sources": [
+        "src/pages/AnnouncementPreviewPage.tsx",
+        "src/pages/AnnouncementPreviewPage.test.tsx"
+      ],
+      "tests": [
+        "playwright/announcement-preview.spec.ts"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  ".github/workflows/stale-pr.yml": {
+    "name": "常规不活跃 PR",
+    "jobs": {
+      "stale-pr": "常规不活跃 PR 处理"
+    }
+  },
+  ".github/workflows/ci-policy-check.yml": {
+    "name": "CI 配置检查",
+    "jobs": {
+      "policy": "CI 配置检查"
+    }
+  },
+  ".github/workflows/frontend-release-assets.yml": {
+    "name": "常规前端制品发布",
+    "jobs": {
+      "release": "常规前端制品发布"
+    }
+  },
+  ".github/workflows/frontend-suite.yml": {
+    "name": "前端检查组合",
+    "jobs": {
+      "lint": "Lint",
+      "chromium": "Chromium E2E",
+      "firefox": "Firefox E2E",
+      "webkit": "WebKit E2E"
+    }
+  },
+  ".github/workflows/gitops-yq-bump.yml": {
+    "name": "常规 GitOps 更新",
+    "jobs": {
+      "bump": "常规 GitOps 更新"
+    }
+  },
+  ".github/workflows/go-test.yml": {
+    "name": "Go Test",
+    "jobs": {
+      "test": "Go Test"
+    }
+  },
+  ".github/workflows/python-uv-redis-rabbitmq-check.yml": {
+    "name": "常规 Python uv Redis RabbitMQ 检查",
+    "jobs": {
+      "check": "常规 Python uv Redis RabbitMQ 检查"
+    }
+  },
+  ".github/workflows/gitops-yq-script-bump.yml": {
+    "name": "常规 GitOps 脚本更新",
+    "jobs": {
+      "bump": "常规 GitOps 脚本更新"
+    }
+  },
+  ".github/workflows/frontend-docker-build-push.yml": {
+    "name": "常规前端 Docker 镜像构建",
+    "jobs": {
+      "build": "常规前端 Docker 镜像构建"
+    }
+  },
+  ".github/workflows/migration-check.yml": {
+    "name": "常规迁移检查",
+    "jobs": {
+      "migration": "常规迁移检查"
+    }
+  },
+  ".github/workflows/sync-pr-template.yml": {
+    "name": "同步组织 PR 模板",
+    "jobs": {
+      "sync": "同步 PR 模板"
+    }
+  },
+  ".github/workflows/docker-build-push.yml": {
+    "name": "常规 Docker 镜像构建",
+    "jobs": {
+      "build": "常规 Docker 镜像构建"
+    }
+  },
+  ".github/workflows/frontend-check.yml": {
+    "name": "前端检查",
+    "jobs": {
+      "frontend": "前端检查"
+    }
+  },
+  ".github/workflows/python-uv-check.yml": {
+    "name": "常规 Python uv 检查",
+    "jobs": {
+      "check": "常规 Python uv 检查"
+    }
+  },
+  ".github/workflows/frontend-benchmark.yml": {
+    "name": "前端浏览器基准",
+    "jobs": {
+      "benchmark": "${{ matrix.browser }} / ${{ matrix.workers }} workers",
+      "compare": "用例覆盖与耗时对比"
+    }
+  },
+  ".github/workflows/ghcr-cleanup-container-versions.yml": {
+    "name": "常规 GHCR 容器版本清理",
+    "jobs": {
+      "cleanup": "常规 GHCR 容器版本清理"
+    }
+  },
+  ".github/workflows/pr-check.yml": {
+    "name": "PR 规范检查",
+    "jobs": {
+      "pr-check": "PR 规范检查"
+    }
+  },
+  ".github/workflows/golangci-lint.yml": {
+    "name": "golangci-lint",
+    "jobs": {
+      "golangci": "golangci-lint"
+    }
+  }
+}

@@ -183,9 +183,9 @@ jobs:
 
           if [ -n "${GITHUB_BASE_REF:-}" ]; then
             git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-            changed_files=$(git diff --name-only "origin/${GITHUB_BASE_REF}"...HEAD)
+            changed_files=$(git diff --no-renames --name-only "origin/${GITHUB_BASE_REF}"...HEAD)
             if [ "${{ steps.policy.outputs.immutable-migration-files }}" = "true" ]; then
-              immutable_migration_files=$(git diff --name-only --diff-filter=MRTD "origin/${GITHUB_BASE_REF}"...HEAD -- "${FULL_MIGRATION_DIR}/*.sql" || true)
+              immutable_migration_files=$(git diff --no-renames --name-only --diff-filter=MRTD "origin/${GITHUB_BASE_REF}"...HEAD -- "${FULL_MIGRATION_DIR}/*.sql" || true)
             fi
           else
             before="${{ github.event.before }}"
@@ -194,9 +194,9 @@ jobs:
               echo "has_migration_changes=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            changed_files=$(git diff --name-only "$before" HEAD)
+            changed_files=$(git diff --no-renames --name-only "$before" HEAD)
             if [ "${{ steps.policy.outputs.immutable-migration-files }}" = "true" ]; then
-              immutable_migration_files=$(git diff --name-only --diff-filter=MRTD "$before" HEAD -- "${FULL_MIGRATION_DIR}/*.sql" || true)
+              immutable_migration_files=$(git diff --no-renames --name-only --diff-filter=MRTD "$before" HEAD -- "${FULL_MIGRATION_DIR}/*.sql" || true)
             fi
           fi
 
@@ -476,7 +476,7 @@ jobs:
             else
               version_diff_filter="AMR"
             fi
-            changed_versions=$(git diff --name-only --diff-filter="$version_diff_filter" "origin/${GITHUB_BASE_REF}"...HEAD -- "${FULL_MIGRATION_DIR}/*.up.sql" |
+            changed_versions=$(git diff --no-renames --name-only --diff-filter="$version_diff_filter" "origin/${GITHUB_BASE_REF}"...HEAD -- "${FULL_MIGRATION_DIR}/*.up.sql" |
               sed -nE "s#^${FULL_MIGRATION_DIR}/([0-9]{6})_.*\\.up\\.sql\$#\\1#p" |
               LC_ALL=C sort -u)
           else

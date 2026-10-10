@@ -81,61 +81,12 @@ jobs:
         with:
           phase: start
 
-      - name: 准备路径过滤配置
-        id: filter-config
-        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (steps.policy.outputs.skip-draft-pr == 'false' || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-        env:
-          CHANGED_PATHS: ${{ steps.policy.outputs.changed-paths }}
-        run: |
-          python3 <<'PY' >> "$GITHUB_OUTPUT"
-          import os
-
-          print("filters<<EOF")
-          print("changed:")
-          for pattern in os.environ["CHANGED_PATHS"].splitlines():
-              pattern = pattern.strip()
-              if pattern:
-                  print(f"  - {pattern!r}")
-          print("EOF")
-          PY
-
-      - uses: actions/checkout@v7.0.1
-        if: github.event_name == 'push'
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: 检查是否有 Go 相关改动
-        id: check
-        uses: dorny/paths-filter@v4.0.3
-        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (steps.policy.outputs.skip-draft-pr == 'false' || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-        with:
-          filters: ${{ steps.filter-config.outputs.filters }}
-          token: ${{ github.token }}
-
-      - name: 判断是否执行 Go 代码检查
+      - name: 判断检查范围
         id: plan
-        env:
-          FILTER_OUTPUT: ${{ steps.check.outputs.changed }}
-        run: |
-          set -euo pipefail
-
-          if [ "${{ steps.policy.outputs.skip-draft-pr }}" = "true" ] &&
-            [ "${{ github.event_name }}" = "pull_request" ] &&
-            [ "${{ github.event.pull_request.draft }}" = "true" ]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "草稿 PR 跳过 Go 代码检查，门禁返回成功。"
-            exit 0
-          fi
-
-          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.event_name }}" != "push" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$FILTER_OUTPUT" = "true" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "PR 无 Go 相关改动，跳过。"
-          fi
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-scope@main
+        with:
+          changed-paths: ${{ steps.policy.outputs.changed-paths }}
+          skip-draft-pr: ${{ steps.policy.outputs.skip-draft-pr }}
 
       - uses: actions/checkout@v7.0.1
         if: steps.plan.outputs.run == 'true' && github.event_name != 'push'

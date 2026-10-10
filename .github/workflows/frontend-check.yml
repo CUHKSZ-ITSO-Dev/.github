@@ -88,81 +88,30 @@ jobs:
         with:
           phase: start
 
-      - name: 准备路径过滤配置
-        id: filter-config
-        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (steps.policy.outputs.skip-draft-pr == 'false' || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-        env:
-          CHANGED_PATHS: ${{ steps.policy.outputs.changed-paths }}
-          IGNORED_PATHS: ${{ steps.policy.outputs.ignored-paths }}
-          ALWAYS_RUN_PATHS: ${{ steps.policy.outputs.always-run-paths }}
-        run: |
-          python3 <<'PY' >> "$GITHUB_OUTPUT"
-          import os
-
-          def patterns(name):
-              for pattern in os.environ[name].splitlines():
-                  pattern = pattern.strip()
-                  if pattern:
-                      yield pattern
-
-          print("filters<<EOF")
-          print("changed:")
-          for pattern in patterns("CHANGED_PATHS"):
-              print(f"  - {pattern!r}")
-          for pattern in patterns("IGNORED_PATHS"):
-              print(f"  - '!{pattern}'")
-          always_patterns = list(patterns("ALWAYS_RUN_PATHS"))
-          if always_patterns:
-              print("always:")
-          for pattern in always_patterns:
-              print(f"  - {pattern!r}")
-          print("EOF")
-          PY
-
-      - uses: actions/checkout@v7.0.1
-        if: github.event_name == 'push'
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: 检查是否有前端相关改动
-        id: check
-        uses: dorny/paths-filter@v4.0.3
-        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (steps.policy.outputs.skip-draft-pr == 'false' || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-        with:
-          filters: ${{ steps.filter-config.outputs.filters }}
-          predicate-quantifier: ${{ steps.policy.outputs.predicate-quantifier }}
-          token: ${{ github.token }}
-
-      - name: 判断是否执行前端检查
+      - name: 判断检查范围
         id: plan
-        env:
-          CHANGED_OUTPUT: ${{ steps.check.outputs.changed }}
-          ALWAYS_OUTPUT: ${{ steps.check.outputs.always }}
-        run: |
-          set -euo pipefail
-
-          if [ "${{ steps.policy.outputs.skip-draft-pr }}" = "true" ] &&
-            [ "${{ github.event_name }}" = "pull_request" ] &&
-            [ "${{ github.event.pull_request.draft }}" = "true" ]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "草稿 PR 跳过前端检查，门禁返回成功。"
-            exit 0
-          fi
-
-          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.event_name }}" != "push" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$ALWAYS_OUTPUT" = "true" ] || [ "$CHANGED_OUTPUT" = "true" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "PR 无前端相关改动，跳过前端检查，门禁返回成功。"
-          fi
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-scope@main
+        with:
+          changed-paths: ${{ steps.policy.outputs.changed-paths }}
+          skip-draft-pr: ${{ steps.policy.outputs.skip-draft-pr }}
+          ignored-paths: ${{ steps.policy.outputs.ignored-paths }}
+          always-run-paths: ${{ steps.policy.outputs.always-run-paths }}
+          predicate-quantifier: ${{ steps.policy.outputs.predicate-quantifier }}
 
       - uses: actions/checkout@v7.0.1
         if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
         with:
           persist-credentials: false
+
+      - name: 选择浏览器用例
+        id: e2e
+        if: steps.plan.outputs.run == 'true'
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-e2e@main
+        with:
+          profile: ${{ inputs.check-profile }}
+          reliable: ${{ steps.plan.outputs.reliable }}
+          files: ${{ steps.plan.outputs.files }}
+          command: ${{ steps.policy.outputs.check-command }}
 
       - name: 安装 pnpm
         if: steps.plan.outputs.run == 'true' && steps.policy.outputs.package-manager == 'pnpm'
@@ -194,7 +143,7 @@ jobs:
         with:
           image: ${{ steps.policy.outputs.playwright-image }}
           working-directory: ${{ steps.policy.outputs.working-directory }}
-          command: ${{ steps.policy.outputs.check-command }}
+          command: ${{ steps.e2e.outputs.command }}
 
       - name: 保存浏览器测试证据
         if: always() && steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-image != ''
@@ -209,7 +158,7 @@ jobs:
       - name: 执行前端检查
         if: steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-image == ''
         working-directory: ${{ steps.policy.outputs.working-directory }}
-        run: ${{ steps.policy.outputs.check-command }}
+        run: ${{ steps.e2e.outputs.command }}
 
       - name: 跳过前端检查
         if: steps.plan.outputs.run != 'true'

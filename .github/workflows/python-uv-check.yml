@@ -55,78 +55,27 @@ jobs:
       group: shared-python-uv-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
-      - name: 准备路径过滤配置
-        id: filter-config
-        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-        env:
-          CHANGED_PATHS: ${{ inputs.changed-paths }}
-          IGNORED_PATHS: ${{ inputs.ignored-paths }}
-          ALWAYS_RUN_PATHS: ${{ inputs.always-run-paths }}
-        run: |
-          python3 <<'PY' >> "$GITHUB_OUTPUT"
-          import os
-
-          def patterns(name):
-              for pattern in os.environ[name].splitlines():
-                  pattern = pattern.strip()
-                  if pattern:
-                      yield pattern
-
-          print("filters<<EOF")
-          print("changed:")
-          for pattern in patterns("CHANGED_PATHS"):
-              print(f"  - {pattern!r}")
-          for pattern in patterns("IGNORED_PATHS"):
-              print(f"  - '!{pattern}'")
-          always_patterns = list(patterns("ALWAYS_RUN_PATHS"))
-          if always_patterns:
-              print("always:")
-          for pattern in always_patterns:
-              print(f"  - {pattern!r}")
-          print("EOF")
-          PY
-
-      - uses: actions/checkout@v6
-        if: github.event_name == 'push'
+      - name: 读取统一 CI 配置
+        id: policy
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-policy@main
         with:
-          fetch-depth: 0
+          kind: python-uv-check
+          legacy-inputs: ${{ toJSON(inputs) }}
 
-      - name: 检查是否有 Python 相关改动
-        id: check
-        uses: dorny/paths-filter@v4
-        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.skip-draft-pr == false || github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-        with:
-          filters: ${{ steps.filter-config.outputs.filters }}
-          predicate-quantifier: ${{ inputs.predicate-quantifier }}
-          token: ${{ github.token }}
-
-      - name: 判断是否执行 Python 检查
+      - name: 判断检查范围
         id: plan
-        env:
-          CHANGED_OUTPUT: ${{ steps.check.outputs.changed }}
-          ALWAYS_OUTPUT: ${{ steps.check.outputs.always }}
-        run: |
-          set -euo pipefail
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-scope@main
+        with:
+          changed-paths: ${{ steps.policy.outputs.changed-paths }}
+          skip-draft-pr: ${{ steps.policy.outputs.skip-draft-pr }}
+          ignored-paths: ${{ steps.policy.outputs.ignored-paths }}
+          always-run-paths: ${{ steps.policy.outputs.always-run-paths }}
+          predicate-quantifier: ${{ steps.policy.outputs.predicate-quantifier }}
 
-          if [ "${{ inputs.skip-draft-pr }}" = "true" ] &&
-            [ "${{ github.event_name }}" = "pull_request" ] &&
-            [ "${{ github.event.pull_request.draft }}" = "true" ]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "草稿 PR 跳过 Python 检查，门禁返回成功。"
-            exit 0
-          fi
-
-          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.event_name }}" != "push" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$ALWAYS_OUTPUT" = "true" ] || [ "$CHANGED_OUTPUT" = "true" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "PR 无 Python 相关改动，跳过 Python 检查，门禁返回成功。"
-          fi
-
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
         if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
+        with:
+          persist-credentials: false
 
       - name: 安装 uv
         if: steps.plan.outputs.run == 'true'

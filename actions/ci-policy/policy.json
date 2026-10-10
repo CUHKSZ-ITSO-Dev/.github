@@ -73,6 +73,20 @@
       "cgo-enabled": "",
       "cgo-ldflags": "",
       "cgo-library-dir": ""
+    },
+    "python-uv-check": {
+      "changed-paths": "**/*\n",
+      "ignored-paths": "",
+      "always-run-paths": "",
+      "predicate-quantifier": "some",
+      "skip-draft-pr": true
+    },
+    "python-uv-redis-rabbitmq-check": {
+      "changed-paths": "**/*\n",
+      "ignored-paths": "",
+      "always-run-paths": "",
+      "predicate-quantifier": "some",
+      "skip-draft-pr": true
     }
   },
   "repositories": {
@@ -205,6 +219,23 @@
           "webkit": "webkit"
         },
         "playwright-image": "mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
+      }
+    },
+    "CUHKSZ-ITSO-Dev/doc-intelligence": {
+      "python-uv-check": {
+        "scope-only": true,
+        "changed-paths": "app/**\nparser/**\nprotos/**\ntests/**\npyproject.toml\nuv.lock\n.python-version\nconftest.py\npytest.ini\nruff.toml\n.ruff.toml\nsetup.cfg\n**/*.py\n**/*.proto\n.env\n.coveragerc\n"
+      },
+      "python-uv-redis-rabbitmq-check": {
+        "scope-only": true,
+        "changed-paths": "app/**\nparser/**\nprotos/**\ntests/**\npyproject.toml\nuv.lock\n.python-version\nconftest.py\npytest.ini\nruff.toml\n.ruff.toml\nsetup.cfg\n**/*.py\n**/*.proto\n.env\n.coveragerc\n"
+      }
+    },
+    "CUHKSZ-ITSO-Dev/WebSearch": {
+      "python-uv-check": {
+        "scope-only": true,
+        "ignored-paths": "docs/**\nREADME.md\nLICENSE\n.github/workflows/**\n",
+        "predicate-quantifier": "some-with-excludes"
       }
     }
   }

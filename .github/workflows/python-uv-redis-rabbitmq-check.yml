@@ -17,6 +17,26 @@ on:
       check-command:
         required: true
         type: string
+      changed-paths:
+        required: false
+        type: string
+        default: '**/*'
+      ignored-paths:
+        required: false
+        type: string
+        default: ''
+      always-run-paths:
+        required: false
+        type: string
+        default: ''
+      predicate-quantifier:
+        required: false
+        type: string
+        default: some
+      skip-draft-pr:
+        required: false
+        type: boolean
+        default: true
       env-vars:
         required: false
         type: string
@@ -28,8 +48,33 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    name: 识别集成检查范围
+    runs-on: ubuntu-slim
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+    steps:
+      - name: 读取统一 CI 配置
+        id: policy
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-policy@main
+        with:
+          kind: python-uv-redis-rabbitmq-check
+          legacy-inputs: ${{ toJSON(inputs) }}
+      - name: 判断检查范围
+        id: plan
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-scope@main
+        with:
+          changed-paths: ${{ steps.policy.outputs.changed-paths }}
+          ignored-paths: ${{ steps.policy.outputs.ignored-paths }}
+          always-run-paths: ${{ steps.policy.outputs.always-run-paths }}
+          predicate-quantifier: ${{ steps.policy.outputs.predicate-quantifier }}
+          skip-draft-pr: ${{ steps.policy.outputs.skip-draft-pr }}
+          token: ''
+
   check:
     name: 常规 Python uv Redis RabbitMQ 检查
+    needs: scope
+    if: ${{ !cancelled() && (needs.scope.result != 'success' || needs.scope.outputs.run != 'false') }}
     runs-on: ubuntu-latest
     concurrency:
       group: shared-python-uv-redis-rabbitmq-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}

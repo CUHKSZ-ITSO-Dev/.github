@@ -1,0 +1,30 @@
+name: E2E 用例选择
+description: PR 使用已核实映射与冒烟；共享基础设施、未知路径和其他事件回退全量。
+inputs:
+  profile:
+    default: ''
+    description: 检查配置
+  reliable:
+    required: true
+    description: 变更列表是否可靠
+  files:
+    required: true
+    description: 全部变更路径 JSON
+  command:
+    required: true
+    description: 原始完整命令
+outputs:
+  command:
+    description: 最终检查命令
+    value: ${{ steps.select.outputs.command }}
+runs:
+  using: composite
+  steps:
+    - id: select
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        RELIABLE: ${{ inputs.reliable }}
+        FILES_JSON: ${{ inputs.files }}
+        CHECK_COMMAND: ${{ inputs.command }}
+      run: python3 "$GITHUB_ACTION_PATH/selection.py"

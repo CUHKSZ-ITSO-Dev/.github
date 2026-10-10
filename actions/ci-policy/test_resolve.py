@@ -124,6 +124,30 @@ class PolicyTest(unittest.TestCase):
         self.assertTrue(result['full-rollback'])
         self.assertIn('assert_postgres_schema.sql', result['binary-check-command'])
 
+    def test_python_scope_is_central_but_execution_contract_is_preserved(self):
+        for kind in ['python-uv-check', 'python-uv-redis-rabbitmq-check']:
+            result = resolve('CUHKSZ-ITSO-Dev/doc-intelligence', kind,
+                             {'changed-paths': 'never/**', 'ignored-paths': '**/*',
+                              'skip-draft-pr': False, 'check-command': 'uv run pytest -m unit',
+                              'python-version': '3.13', 'env-vars': 'ENABLE_LLM=false'}, self.policy)
+            self.assertIn('app/**', result['changed-paths'])
+            self.assertIn('**/*.py', result['changed-paths'])
+            self.assertEqual(result['ignored-paths'], '')
+            self.assertTrue(result['skip-draft-pr'])
+            self.assertEqual(result['check-command'], 'uv run pytest -m unit')
+            self.assertEqual(result['python-version'], '3.13')
+            self.assertEqual(result['env-vars'], 'ENABLE_LLM=false')
+
+    def test_unmanaged_python_callers_keep_their_scope(self):
+        result = resolve('Example/Python', 'python-uv-check',
+                         {'changed-paths': 'src/**', 'check-command': 'uv run pytest'}, self.policy)
+        self.assertEqual(result['changed-paths'], 'src/**')
+
+    def test_websearch_exclusions_use_or_with_excludes(self):
+        result = resolve('CUHKSZ-ITSO-Dev/WebSearch', 'python-uv-check', {}, self.policy)
+        self.assertEqual(result['predicate-quantifier'], 'some-with-excludes')
+        self.assertIn('docs/**', result['ignored-paths'])
+
 
 if __name__ == '__main__':
     unittest.main()

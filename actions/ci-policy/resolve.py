@@ -13,6 +13,10 @@ def resolve(repository, kind, legacy, policy, profile=""):
         if kind not in repositories[repository]:
             raise ValueError(f'仓库未配置检查类型：{repository}/{kind}')
         config = repositories[repository][kind].copy()
+        if config.pop('scope-only', False):
+            # Python callers retain their execution contract; only the scope is central.
+            execution = {key: value for key, value in legacy.items() if key not in defaults}
+            return defaults | execution | config
         profiles = config.pop('profiles', {})
         legacy_profiles = config.pop('legacy-profiles', {})
         if profiles:
