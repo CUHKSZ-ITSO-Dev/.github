@@ -17,7 +17,13 @@ test('三仓只改 CI 入口不启动 Go 测试、lint 和迁移数据库', () =
       if (migration) assert.equal(new RegExp(migration['migration-path-pattern']).test(file), false);
     }
   }
-  assert.equal(matches('UniAuth', 'frontend-check', '.github/workflows/frontend-lint.yml'), false);
+  // 前端编排本身属于门禁契约，变更必须验证完整前端检查。
+  for (const file of ['.github/workflows/frontend-lint.yml', '.github/workflows/frontend-build.yml',
+    '.github/frontend-check-contract.json', 'scripts/check_frontend_ci_policy.py',
+    'scripts/test_frontend_ci_policy.py', 'docs/规范/前端/README.md']) {
+    assert.equal(matches('UniAuth', 'frontend-check', file), true, file);
+  }
+  assert.equal(matches('UniAuth', 'frontend-check', '.github/workflows/go-test.yml'), false);
 });
 test('源码、依赖及测试夹具仍执行 Go 测试', () => {
   for (const repo of ['Chat', 'UniAuth', 'open-platform']) {
