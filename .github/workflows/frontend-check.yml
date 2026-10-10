@@ -145,20 +145,22 @@ jobs:
           working-directory: ${{ steps.policy.outputs.working-directory }}
           command: ${{ steps.e2e.outputs.command }}
 
+      - name: 执行前端检查
+        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-image == ''
+        working-directory: ${{ steps.policy.outputs.working-directory }}
+        run: ${{ steps.e2e.outputs.command }}
+
       - name: 保存浏览器测试证据
-        if: always() && steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-image != ''
+        if: always() && steps.plan.outputs.run == 'true' && (steps.policy.outputs.playwright-browsers != '' || steps.policy.outputs.playwright-image != '')
         uses: actions/upload-artifact@v6
         with:
           name: frontend-${{ inputs.check-profile || inputs.playwright-browsers || 'default' }}
           path: |
             ${{ steps.policy.outputs.working-directory }}/test-results
             ${{ steps.policy.outputs.working-directory }}/playwright-report
+            ${{ steps.policy.outputs.working-directory }}/.playwright/results
+          include-hidden-files: true
           retention-days: 7
-
-      - name: 执行前端检查
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-image == ''
-        working-directory: ${{ steps.policy.outputs.working-directory }}
-        run: ${{ steps.e2e.outputs.command }}
 
       - name: 跳过前端检查
         if: steps.plan.outputs.run != 'true'

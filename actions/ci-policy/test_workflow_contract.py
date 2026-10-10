@@ -47,6 +47,24 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("if: github.event_name == 'pull_request' && inputs.push == false && inputs.checkout-ref == ''", source)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' && inputs.push == false }}", source)
 
+    def test_browser_evidence_covers_host_and_container_failure_paths(self):
+        source = (ROOT / '.github/workflows/frontend-check.yml').read_text()
+        block = source.split('      - name: 保存浏览器测试证据\n', 1)[1].split('      - name:', 1)[0]
+        predicate = re.search(r'^        if: (.+)$', block, re.M).group(1)
+        for run, browsers, image, expected in [('true', 'chromium', '', True),
+                                               ('true', '', 'image@sha256:hash', True),
+                                               ('false', 'chromium', '', False),
+                                               ('true', '', '', False)]:
+            expression = predicate.replace('always()', 'True')
+            for name, value in [('run', run), ('playwright-browsers', browsers), ('playwright-image', image)]:
+                expression = expression.replace('steps.plan.outputs.run' if name == 'run' else 'steps.policy.outputs.' + name, repr(value))
+            expression = expression.replace('&&', ' and ').replace('||', ' or ')
+            self.assertEqual(eval(expression, {'__builtins__': {}}, {}), expected)
+        self.assertGreater(source.index('      - name: 保存浏览器测试证据'), source.index('      - name: 执行前端检查'))
+        self.assertGreater(source.index('      - name: 保存浏览器测试证据'), source.index('      - name: 在预装浏览器环境执行完整检查'))
+        self.assertIn('/.playwright/results', block)
+        self.assertIn('include-hidden-files: true', block)
+
     def test_always_paths_are_independent_of_and_predicate(self):
         source = (ROOT / 'actions/ci-scope/action.yml').read_text()
         block = source.split('    - id: always\n', 1)[1].split('    - id: plan\n')[0]
