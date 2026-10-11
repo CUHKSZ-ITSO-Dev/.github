@@ -76,7 +76,7 @@ def main():
                         'GITHUB_ENV': '/workspace/test.env', 'PGPASSWORD': 'postgres',
                         'GOCACHE': '/workspace/cache/build', 'GOMODCACHE': '/workspace/cache/mod',
                         'GOPATH': '/workspace/go', 'HOME': '/workspace/home'})
-    environment['PATH'] = '/workspace/go/bin:' + environment['PATH']
+    environment['PATH'] = '/usr/local/go/bin:/workspace/go/bin:' + environment['PATH']
     for key, policy_key in [('CGO_ENABLED', 'cgo-enabled'), ('CGO_LDFLAGS', 'cgo-ldflags')]:
         if config[policy_key]:
             environment[key] = config[policy_key]
@@ -99,7 +99,7 @@ def main():
     environment.update(exported_environment(env_file))
     print('Running Go Test', flush=True)
     Path('/workspace/results').mkdir(exist_ok=True)
-    subprocess.run(['gotestsum', '--junitfile', '/workspace/results/junit.xml',
+    subprocess.run(['/go/bin/gotestsum', '--junitfile', '/workspace/results/junit.xml',
                     '--jsonfile', '/workspace/results/tests.json', '--',
                     *shlex.split(config['test-flags']), './...'],
                    cwd=directory, env=environment, check=True)
