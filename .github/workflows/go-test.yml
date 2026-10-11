@@ -87,13 +87,9 @@ permissions:
 
 jobs:
   test:
-    # 三个业务仓库的 Go Test 由 DevPortal 执行。
-    if: >-
-      github.repository != 'CUHKSZ-ITSO-Dev/Chat' &&
-      github.repository != 'CUHKSZ-ITSO-Dev/UniAuth' &&
-      github.repository != 'CUHKSZ-ITSO-Dev/open-platform'
     name: Go Test
     runs-on: ubuntu-latest
+    timeout-minutes: 110
     concurrency:
       group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -117,215 +113,19 @@ jobs:
           changed-paths: ${{ steps.policy.outputs.changed-paths }}
           skip-draft-pr: ${{ steps.policy.outputs.skip-draft-pr }}
 
-      - uses: actions/checkout@v7.0.1
-        if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
-        with:
-          persist-credentials: false
-
-      - name: 设置 Go 编译并发
+      - name: 在 GitHub runner 执行 Go Test
+        id: primary
         if: steps.plan.outputs.run == 'true'
-        run: |
-          set -euo pipefail
-          if [ "$RUNNER_ENVIRONMENT" = "github-hosted" ] && [ "$RUNNER_OS" = "Linux" ]; then
-            # Go 并行编译按实际 CPU 数量执行；保留调用方的测试参数和 race。
-            echo "GOMAXPROCS=$(nproc)" >> "$GITHUB_ENV"
-            echo "GOFLAGS=${GOFLAGS:-} -p=$(nproc)" >> "$GITHUB_ENV"
-          fi
-          df -h "$GITHUB_WORKSPACE"
-
-      - name: 计算 Git LFS 内容缓存键
-        id: lfs-key
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.lfs-include != ''
-        env:
-          LFS_INCLUDE: ${{ steps.policy.outputs.lfs-include }}
-        run: |
-          set -euo pipefail
-          # 缓存对象由 LFS OID 决定，普通代码提交不应复制相同二进制缓存。
-          objects=$(git lfs ls-files --long --include="$LFS_INCLUDE" | awk '{print $1}' | LC_ALL=C sort -u)
-          echo "hash=$(printf '%s' "$objects" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-
-      - name: 恢复 Git LFS 缓存
-        id: lfs
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.lfs-include != ''
-        uses: actions/cache/restore@v6.1.0
+        continue-on-error: true
+        uses: CUHKSZ-ITSO-Dev/.github/actions/go-test-hosted@main
         with:
-          path: .git/lfs
-          key: lfs-${{ github.repository }}-${{ steps.lfs-key.outputs.hash }}
-          restore-keys: lfs-${{ github.repository }}-
+          policy-json: ${{ toJSON(steps.policy.outputs) }}
 
-      - name: 拉取 Git LFS 文件
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.lfs-include != ''
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          LFS_INCLUDE: ${{ steps.policy.outputs.lfs-include }}
-        run: |
-          set -euo pipefail
-          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
-          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
-          git lfs pull --include="$LFS_INCLUDE"
-
-      - name: 保存 Git LFS 缓存
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.lfs-include != '' && steps.lfs.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6.1.0
+      - name: 确认失败原因并按需回退 DevPortal
+        if: steps.primary.outcome == 'failure' && !cancelled()
+        uses: CUHKSZ-ITSO-Dev/.github/actions/go-test-fallback@main
         with:
-          path: .git/lfs
-          key: ${{ steps.lfs.outputs.cache-primary-key }}
-
-      - uses: actions/setup-go@v7.0.0
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.go-version-file != ''
-        with:
-          cache: false
-          go-version-file: ${{ steps.policy.outputs.go-version-file }}
-
-      - uses: actions/setup-go@v7.0.0
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.go-version-file == '' && steps.policy.outputs.go-version != ''
-        with:
-          cache: false
-          go-version: ${{ steps.policy.outputs.go-version }}
-
-      - uses: actions/setup-go@v7.0.0
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.go-version-file == '' && steps.policy.outputs.go-version == ''
-        with:
-          cache: false
-          go-version-file: ${{ steps.policy.outputs.working-directory }}/go.mod
-
-      - name: 读取 Go 缓存版本
-        id: go-cache
-        if: steps.plan.outputs.run == 'true'
-        run: echo "version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: 恢复 Go 缓存
-        if: steps.plan.outputs.run == 'true'
-        uses: actions/cache@v6.1.0
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-test-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-${{ hashFiles(steps.policy.outputs.cache-dependency-path) }}
-          restore-keys: |
-            go-test-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-
-            go-test-${{ runner.os }}-${{ steps.go-cache.outputs.version }}-${{ hashFiles(steps.policy.outputs.cache-dependency-path) }}-
-            go-test-${{ runner.os }}-${{ hashFiles(steps.policy.outputs.cache-dependency-path) }}-
-
-      - name: 按余量准备编译空间
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.clean-unused-sdks == 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
-        uses: CUHKSZ-ITSO-Dev/.github/actions/go-disk-space@main
-        with:
-          minimum-free-gib: ${{ steps.policy.outputs.minimum-free-disk-gib }}
-
-      - name: 准备测试数据库参数
-        if: steps.plan.outputs.run == 'true'
-        run: |
-          set -euo pipefail
-
-          case "${{ steps.policy.outputs.database-kind }}" in
-            none|postgres|sqlserver) ;;
-            *) echo "::error::database-kind 仅支持 none、postgres 或 sqlserver。"; exit 1 ;;
-          esac
-
-          if [ "${{ steps.policy.outputs.database-kind }}" = "postgres" ] && [ -n "${{ steps.policy.outputs.app-database-name }}" ]; then
-            echo "MIGRATION_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/${{ steps.policy.outputs.app-database-name }}?sslmode=disable" >> "$GITHUB_ENV"
-            echo "MIGRATION_TEST_GOFRAME_LINK=pgsql:postgres:postgres@tcp(localhost:5432)/${{ steps.policy.outputs.app-database-name }}" >> "$GITHUB_ENV"
-          fi
-          if [ "${{ steps.policy.outputs.database-kind }}" = "sqlserver" ] && [ -n "${{ steps.policy.outputs.app-database-name }}" ]; then
-            echo "MIGRATION_TEST_DATABASE_URL=sqlserver://sa:DevPass123%21@localhost:1433?database=${{ steps.policy.outputs.app-database-name }}&encrypt=disable" >> "$GITHUB_ENV"
-            echo "MIGRATION_TEST_GOFRAME_LINK=mssql:sa:DevPass123!@tcp(localhost:1433)/${{ steps.policy.outputs.app-database-name }}?encrypt=disable" >> "$GITHUB_ENV"
-          fi
-
-      - name: 准备 CGO 参数
-        if: steps.plan.outputs.run == 'true' && (steps.policy.outputs.cgo-enabled != '' || steps.policy.outputs.cgo-ldflags != '' || steps.policy.outputs.cgo-library-dir != '')
-        env:
-          INPUT_CGO_ENABLED: ${{ steps.policy.outputs.cgo-enabled }}
-          INPUT_CGO_LDFLAGS: ${{ steps.policy.outputs.cgo-ldflags }}
-          INPUT_CGO_LIBRARY_DIR: ${{ steps.policy.outputs.cgo-library-dir }}
-        run: |
-          set -euo pipefail
-
-          if [ -n "$INPUT_CGO_ENABLED" ]; then
-            echo "CGO_ENABLED=$INPUT_CGO_ENABLED" >> "$GITHUB_ENV"
-          fi
-
-          if [ -n "$INPUT_CGO_LDFLAGS" ]; then
-            echo "CGO_LDFLAGS=$INPUT_CGO_LDFLAGS" >> "$GITHUB_ENV"
-          elif [ -n "$INPUT_CGO_LIBRARY_DIR" ]; then
-            library_dir="${INPUT_CGO_LIBRARY_DIR#/}"
-            echo "CGO_LDFLAGS=-L${GITHUB_WORKSPACE}/${library_dir}" >> "$GITHUB_ENV"
-          fi
-
-      - name: 启动 PostgreSQL
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.database-kind == 'postgres'
-        env:
-          POSTGRES_IMAGE: ${{ steps.policy.outputs.postgres-image }}
-        run: |
-          set -euo pipefail
-          docker run -d --name go-test-postgres \
-            -e POSTGRES_DB="${{ steps.policy.outputs.database-name }}" \
-            -e POSTGRES_USER=postgres \
-            -e POSTGRES_PASSWORD=postgres \
-            -p 5432:5432 "$POSTGRES_IMAGE"
-          for _ in {1..30}; do
-            if docker exec go-test-postgres pg_isready -U postgres -d "${{ steps.policy.outputs.database-name }}" >/dev/null 2>&1; then
-              if [ -n "${{ steps.policy.outputs.app-database-name }}" ]; then
-                docker exec go-test-postgres createdb -U postgres "${{ steps.policy.outputs.app-database-name }}"
-              fi
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "::error::PostgreSQL 未就绪"
-          exit 1
-
-      - name: 启动 SQL Server
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.database-kind == 'sqlserver'
-        run: |
-          set -euo pipefail
-          wait_database() {
-            local database_name="$1"
-            for _ in {1..30}; do
-              if docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -d "$database_name" -Q 'SELECT 1' >/dev/null 2>&1; then
-                return 0
-              fi
-              sleep 2
-            done
-            echo "::error::SQL Server 数据库 ${database_name} 未就绪"
-            return 1
-          }
-          docker run -d --name go-test-sqlserver \
-            -e ACCEPT_EULA=Y \
-            -e 'MSSQL_SA_PASSWORD=DevPass123!' \
-            -p 1433:1433 mcr.microsoft.com/mssql/server:2025-latest@sha256:2b5b581621126574f3d1f75e78d3eebe8d05aedb59ad0cfdf9aa42cb0634d726
-          for _ in {1..60}; do
-            if docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
-              docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q "CREATE DATABASE [${{ steps.policy.outputs.database-name }}]"
-              wait_database "${{ steps.policy.outputs.database-name }}"
-              if [ -n "${{ steps.policy.outputs.app-database-name }}" ]; then
-                docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q "CREATE DATABASE [${{ steps.policy.outputs.app-database-name }}]"
-                wait_database "${{ steps.policy.outputs.app-database-name }}"
-              fi
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "::error::SQL Server 未就绪"
-          exit 1
-
-      - name: 准备测试配置
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.prepare-command != ''
-        working-directory: ${{ steps.policy.outputs.working-directory }}
-        run: ${{ steps.policy.outputs.prepare-command }}
-
-      - name: 运行 Go 测试
-        if: steps.plan.outputs.run == 'true'
-        working-directory: ${{ steps.policy.outputs.working-directory }}
-        env:
-          PGPASSWORD: postgres
-          TEST_FLAGS: ${{ steps.policy.outputs.test-flags }}
-        run: |
-          set -euo pipefail
-          # shellcheck disable=SC2086 # test-flags 是受控 workflow 输入，需要拆分为 Go 参数。
-          go test ${TEST_FLAGS} ./...
+          token: ${{ github.token }}
 
       - name: 输出资源采样
         if: always()

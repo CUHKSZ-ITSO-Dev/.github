@@ -1,0 +1,17 @@
+name: Go Test 磁盘不足回退
+description: 仅在 GitHub runner 明确磁盘不足时提交相同 commit 到 DevPortal，并等待真实测试结果。
+inputs:
+  token:
+    required: true
+    description: 当前运行的临时仓库读取 token
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        FALLBACK_TOKEN: ${{ inputs.token }}
+        FALLBACK_REPOSITORY: ${{ github.repository }}
+        FALLBACK_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        FALLBACK_RUN_ID: ${{ github.run_id }}
+        FALLBACK_RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: python3 "$GITHUB_ACTION_PATH/run.py"

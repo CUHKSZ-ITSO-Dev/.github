@@ -1,0 +1,251 @@
+name: GitHub runner Go Test
+description: 执行现有测试，记录明确的磁盘不足原因供按需回退。
+inputs:
+  policy-json:
+    required: true
+    description: 集中 CI 策略
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7.0.1
+      with:
+        persist-credentials: false
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: 设置 Go 编译并发
+      env:
+        CAPTURE_COMMAND: |
+          set -euo pipefail
+          if [ "$RUNNER_ENVIRONMENT" = "github-hosted" ] && [ "$RUNNER_OS" = "Linux" ]; then
+            # Go 并行编译按实际 CPU 数量执行；保留调用方的测试参数和 race。
+            echo "GOMAXPROCS=$(nproc)" >> "$GITHUB_ENV"
+            echo "GOFLAGS=${GOFLAGS:-} -p=$(nproc)" >> "$GITHUB_ENV"
+          fi
+          df -h "$GITHUB_WORKSPACE"
+
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+    - name: 按余量准备编译空间
+      if: fromJSON(inputs.policy-json).clean-unused-sdks == 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+      uses: CUHKSZ-ITSO-Dev/.github/actions/go-disk-space@main
+      with:
+        minimum-free-gib: ${{ fromJSON(inputs.policy-json).minimum-free-disk-gib }}
+
+    - name: 检查编译空间
+      env:
+        MINIMUM_FREE_GIB: ${{ fromJSON(inputs.policy-json).minimum-free-disk-gib }}
+        CAPTURE_COMMAND: |
+          python3 "$GITHUB_ACTION_PATH/capture.py" --check-space
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+
+    - name: 计算 Git LFS 内容缓存键
+      id: lfs-key
+      if: fromJSON(inputs.policy-json).lfs-include != ''
+      env:
+        LFS_INCLUDE: ${{ fromJSON(inputs.policy-json).lfs-include }}
+        CAPTURE_COMMAND: |
+          set -euo pipefail
+          # 缓存对象由 LFS OID 决定，普通代码提交不应复制相同二进制缓存。
+          objects=$(git lfs ls-files --long --include="$LFS_INCLUDE" | awk '{print $1}' | LC_ALL=C sort -u)
+          echo "hash=$(printf '%s' "$objects" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+    - name: 恢复 Git LFS 缓存
+      id: lfs
+      if: fromJSON(inputs.policy-json).lfs-include != ''
+      uses: actions/cache/restore@v6.1.0
+      with:
+        path: .git/lfs
+        key: lfs-${{ github.repository }}-${{ steps.lfs-key.outputs.hash }}
+        restore-keys: lfs-${{ github.repository }}-
+
+    - name: 拉取 Git LFS 文件
+      if: fromJSON(inputs.policy-json).lfs-include != ''
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        LFS_INCLUDE: ${{ fromJSON(inputs.policy-json).lfs-include }}
+        CAPTURE_COMMAND: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          git lfs pull --include="$LFS_INCLUDE"
+
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+    - name: 保存 Git LFS 缓存
+      if: fromJSON(inputs.policy-json).lfs-include != '' && steps.lfs.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6.1.0
+      with:
+        path: .git/lfs
+        key: ${{ steps.lfs.outputs.cache-primary-key }}
+
+    - uses: actions/setup-go@v7.0.0
+      if: fromJSON(inputs.policy-json).go-version-file != ''
+      with:
+        cache: false
+        go-version-file: ${{ fromJSON(inputs.policy-json).go-version-file }}
+
+    - uses: actions/setup-go@v7.0.0
+      if: fromJSON(inputs.policy-json).go-version-file == '' && fromJSON(inputs.policy-json).go-version != ''
+      with:
+        cache: false
+        go-version: ${{ fromJSON(inputs.policy-json).go-version }}
+
+    - uses: actions/setup-go@v7.0.0
+      if: fromJSON(inputs.policy-json).go-version-file == '' && fromJSON(inputs.policy-json).go-version == ''
+      with:
+        cache: false
+        go-version-file: ${{ fromJSON(inputs.policy-json).working-directory }}/go.mod
+
+    - name: 读取 Go 缓存版本
+      id: go-cache
+      env:
+        CAPTURE_COMMAND: |
+          echo "version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+
+    - name: 恢复 Go 缓存
+      uses: actions/cache@v6.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+        key: go-test-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-${{ hashFiles(fromJSON(inputs.policy-json).cache-dependency-path) }}
+    - name: 检查编译空间
+      env:
+        MINIMUM_FREE_GIB: ${{ fromJSON(inputs.policy-json).minimum-free-disk-gib }}
+        CAPTURE_COMMAND: |
+          python3 "$GITHUB_ACTION_PATH/capture.py" --check-space
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+
+    - name: 准备测试数据库参数
+      env:
+        CAPTURE_COMMAND: |
+          set -euo pipefail
+
+          case "${{ fromJSON(inputs.policy-json).database-kind }}" in
+            none|postgres|sqlserver) ;;
+            *) echo "::error::database-kind 仅支持 none、postgres 或 sqlserver。"; exit 1 ;;
+          esac
+
+          if [ "${{ fromJSON(inputs.policy-json).database-kind }}" = "postgres" ] && [ -n "${{ fromJSON(inputs.policy-json).app-database-name }}" ]; then
+            echo "MIGRATION_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/${{ fromJSON(inputs.policy-json).app-database-name }}?sslmode=disable" >> "$GITHUB_ENV"
+            echo "MIGRATION_TEST_GOFRAME_LINK=pgsql:postgres:postgres@tcp(localhost:5432)/${{ fromJSON(inputs.policy-json).app-database-name }}" >> "$GITHUB_ENV"
+          fi
+          if [ "${{ fromJSON(inputs.policy-json).database-kind }}" = "sqlserver" ] && [ -n "${{ fromJSON(inputs.policy-json).app-database-name }}" ]; then
+            echo "MIGRATION_TEST_DATABASE_URL=sqlserver://sa:DevPass123%21@localhost:1433?database=${{ fromJSON(inputs.policy-json).app-database-name }}&encrypt=disable" >> "$GITHUB_ENV"
+            echo "MIGRATION_TEST_GOFRAME_LINK=mssql:sa:DevPass123!@tcp(localhost:1433)/${{ fromJSON(inputs.policy-json).app-database-name }}?encrypt=disable" >> "$GITHUB_ENV"
+          fi
+
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+    - name: 准备 CGO 参数
+      if: (fromJSON(inputs.policy-json).cgo-enabled != '' || fromJSON(inputs.policy-json).cgo-ldflags != '' || fromJSON(inputs.policy-json).cgo-library-dir != '')
+      env:
+        INPUT_CGO_ENABLED: ${{ fromJSON(inputs.policy-json).cgo-enabled }}
+        INPUT_CGO_LDFLAGS: ${{ fromJSON(inputs.policy-json).cgo-ldflags }}
+        INPUT_CGO_LIBRARY_DIR: ${{ fromJSON(inputs.policy-json).cgo-library-dir }}
+        CAPTURE_COMMAND: |
+          set -euo pipefail
+
+          if [ -n "$INPUT_CGO_ENABLED" ]; then
+            echo "CGO_ENABLED=$INPUT_CGO_ENABLED" >> "$GITHUB_ENV"
+          fi
+
+          if [ -n "$INPUT_CGO_LDFLAGS" ]; then
+            echo "CGO_LDFLAGS=$INPUT_CGO_LDFLAGS" >> "$GITHUB_ENV"
+          elif [ -n "$INPUT_CGO_LIBRARY_DIR" ]; then
+            library_dir="${INPUT_CGO_LIBRARY_DIR#/}"
+            echo "CGO_LDFLAGS=-L${GITHUB_WORKSPACE}/${library_dir}" >> "$GITHUB_ENV"
+          fi
+
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+    - name: 启动 PostgreSQL
+      if: fromJSON(inputs.policy-json).database-kind == 'postgres'
+      env:
+        POSTGRES_IMAGE: ${{ fromJSON(inputs.policy-json).postgres-image }}
+        CAPTURE_COMMAND: |
+          set -euo pipefail
+          docker run -d --name go-test-postgres \
+            -e POSTGRES_DB="${{ fromJSON(inputs.policy-json).database-name }}" \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -p 5432:5432 "$POSTGRES_IMAGE"
+          for _ in {1..30}; do
+            if docker exec go-test-postgres pg_isready -U postgres -d "${{ fromJSON(inputs.policy-json).database-name }}" >/dev/null 2>&1; then
+              if [ -n "${{ fromJSON(inputs.policy-json).app-database-name }}" ]; then
+                docker exec go-test-postgres createdb -U postgres "${{ fromJSON(inputs.policy-json).app-database-name }}"
+              fi
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::PostgreSQL 未就绪"
+          exit 1
+
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+    - name: 启动 SQL Server
+      if: fromJSON(inputs.policy-json).database-kind == 'sqlserver'
+      env:
+        CAPTURE_COMMAND: |
+          set -euo pipefail
+          wait_database() {
+            local database_name="$1"
+            for _ in {1..30}; do
+              if docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -d "$database_name" -Q 'SELECT 1' >/dev/null 2>&1; then
+                return 0
+              fi
+              sleep 2
+            done
+            echo "::error::SQL Server 数据库 ${database_name} 未就绪"
+            return 1
+          }
+          docker run -d --name go-test-sqlserver \
+            -e ACCEPT_EULA=Y \
+            -e 'MSSQL_SA_PASSWORD=DevPass123!' \
+            -p 1433:1433 mcr.microsoft.com/mssql/server:2025-latest@sha256:2b5b581621126574f3d1f75e78d3eebe8d05aedb59ad0cfdf9aa42cb0634d726
+          for _ in {1..60}; do
+            if docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
+              docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q "CREATE DATABASE [${{ fromJSON(inputs.policy-json).database-name }}]"
+              wait_database "${{ fromJSON(inputs.policy-json).database-name }}"
+              if [ -n "${{ fromJSON(inputs.policy-json).app-database-name }}" ]; then
+                docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q "CREATE DATABASE [${{ fromJSON(inputs.policy-json).app-database-name }}]"
+                wait_database "${{ fromJSON(inputs.policy-json).app-database-name }}"
+              fi
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::SQL Server 未就绪"
+          exit 1
+
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+    - name: 准备测试配置
+      if: fromJSON(inputs.policy-json).prepare-command != ''
+      working-directory: ${{ fromJSON(inputs.policy-json).working-directory }}
+      env:
+        CAPTURE_COMMAND: |
+          ${{ fromJSON(inputs.policy-json).prepare-command }}
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"
+
+    - name: 运行 Go 测试
+      working-directory: ${{ fromJSON(inputs.policy-json).working-directory }}
+      env:
+        PGPASSWORD: postgres
+        TEST_FLAGS: ${{ fromJSON(inputs.policy-json).test-flags }}
+        CAPTURE_COMMAND: |
+          set -euo pipefail
+          # shellcheck disable=SC2086 # test-flags 是受控 workflow 输入，需要拆分为 Go 参数。
+          go test ${TEST_FLAGS} ./...
+
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/capture.py"

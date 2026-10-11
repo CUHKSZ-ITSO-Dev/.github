@@ -27,6 +27,8 @@ jobs:
           python3 -m unittest discover -s actions/frontend-runtime
           python3 -m unittest discover -s actions/ci-policy
           python3 -m unittest discover -s actions/ci-resources
+          python3 -m unittest discover -s actions/go-test-hosted
+          python3 -m unittest discover -s actions/go-test-fallback
           python3 -m unittest discover -s actions/go-disk-space
       - name: 准备提交信息与工作流列表
         run: |
