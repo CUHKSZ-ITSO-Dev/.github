@@ -24,15 +24,13 @@ DevPortal 观察开放 PR 和 main
 
 DevPortal 直接观察源码变化，不新增只负责触发或等待的 GitHub Actions job。普通 PR 的测试不依赖部署标签，也不依赖是否请求开发服部署。草稿 PR 沿用跳过策略；转为可审查后重新判定。main 检查独立于当前开发服部署版本，不因已有 PR 占用开发槽位而停测。
 
-第一阶段只接入同仓库 PR；fork PR 必须保留可用的 GitHub CI 路径，直到独立的无凭据执行能力完成验证。DevPortal 转述同一完整 head SHA 的 GitHub Actions Go Test 结果，校验应用来源与检查名，不接受候选自行写入的 commit status；这样切换必需 context 后 fork PR 仍有完成路径。
-
 ## 源码身份与状态
 
-PR 执行当前 GitHub 合并预览，记录 repository、PR、head、base、执行 SHA 和测试配置版本。回传绑定 PR head；main 执行完整 main SHA。结果复用必须核对全部输入；base、源码或测试配置变化均使旧结果失效。不能仅用短 SHA 或成功状态判断可复用。
+PR 直接执行最后推送的完整 head SHA，记录 repository、PR、head 和测试配置版本。main 执行完整 main SHA。源码、执行器或测试配置变化使旧结果失效；base 分支变化、合并预览暂缺和合并冲突不影响 Go Test。合并可行性由 GitHub 自身判断。
 
 PR 变更范围复用集中 `changed-paths` 与已有 doublestar 组件，保留重命名的旧、新路径。未命中时明确回传“无需测试”；差异列表不完整、获取失败或匹配语法未知时执行全量测试。普通部署仍只观察既定目标分支，独立 Go Test 观察所有开放、非草稿 PR，包括堆叠 PR。
 
-同一 PR 新提交取代旧请求，停止未完成测试并回收其临时环境；旧执行不得回写覆盖新身份的结果。PR 关闭、变为草稿或源码身份改变时收敛旧任务。控制器重启通过持久记录和 Workflow 状态恢复，不依赖进程内任务表。合并预览暂缺时保持等待，存在冲突时明确失败，不退回测试原始 head。
+同一 PR 新提交取代旧请求，停止未完成测试并回收其临时环境；旧执行不得回写覆盖新身份的结果。PR 关闭、变为草稿或源码身份改变时收敛旧任务。控制器重启通过持久记录和 Workflow 状态恢复，不依赖进程内任务表。不增加 fork 转述或合并预览检查分支。
 
 新增独立 context `Dev Portal / Go Test`，与现有 `Dev Portal / 开发服部署` 分开维护：
 
@@ -79,7 +77,7 @@ DevPortal 详情显示源码身份、排队和实际步骤、耗时、退出码�
 5. 在新结果稳定回传后，逐仓更新必需检查规则并停用旧 Go Test 入口：Chat 的 `.github/workflows/test.yml`，UniAuth 与 open-platform 的 `.github/workflows/go-test.yml`。先核对实际 ruleset 和来源绑定，不能把 Actions 必需检查直接改名当作迁移。
 6. 回滚时先恢复旧 GitHub Go Test 入口与必需检查规则，确认重新产生有效结果，再停止新执行器。其他 GitHub 检查与业务部署路径沿用既有契约。
 
-执行器、DevPortal 独立协调及 Cluster 开发环境模板已上线并完成真实执行验收。三个仓库复用工作流的 `@main` 入口，集中停用同仓库 PR/main 的旧 Go Test job；fork PR 保留 Actions 路径并由 DevPortal 验证转述。Chat 和 open-platform 的必需检查改为 `Dev Portal / Go Test`，移除原 Actions 来源绑定；UniAuth 原本未要求 Go Test 必需检查，保持其现有门禁。其他检查、签名及评审规则保持原样。现存 UniAuth 专用发布校验不作为本次迁移的契约或依赖。
+执行器、DevPortal 独立协调及 Cluster 开发环境模板已上线并完成真实执行验收。三个仓库复用工作流的 `@main` 入口，集中停用三个仓库的旧 Go Test job，并通过业务仓库清理 PR 删除调用文件。Chat 和 open-platform 的必需检查改为 `Dev Portal / Go Test`，移除原 Actions 来源绑定；UniAuth 原本未要求 Go Test 必需检查，保持其现有门禁。其他检查、签名及评审规则保持原样。现存 UniAuth 专用发布校验不作为本次迁移的契约或依赖。
 
 ## 数据库版本核对
 
