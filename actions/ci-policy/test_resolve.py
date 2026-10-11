@@ -51,11 +51,11 @@ class PolicyTest(unittest.TestCase):
                 self.assertRegex(result['prepare-command'],
                                  rf'echo "{variable}=postgres(?:ql)?://[^\n]+/{database}\?sslmode=disable" >> "\$GITHUB_ENV"')
 
-    def test_database_version_follows_repository_compatibility(self):
+    def test_database_version_uses_one_shared_baseline(self):
         uniauth = resolve('CUHKSZ-ITSO-Dev/UniAuth', 'go-test',
                           {'postgres-image': 'postgres:18'}, self.policy)
         other = resolve('CUHKSZ-ITSO-Dev/open-platform', 'go-test', {}, self.policy)
-        self.assertTrue(uniauth['postgres-image'].startswith('postgres:17.11@sha256:'))
+        self.assertEqual(uniauth['postgres-image'], other['postgres-image'])
         self.assertTrue(other['postgres-image'].startswith('postgres:18.6@sha256:'))
 
     def test_uniauth_lint_uses_the_checked_out_module_toolchain(self):

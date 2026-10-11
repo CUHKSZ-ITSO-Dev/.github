@@ -1,0 +1,20 @@
+name: Go Test 执行镜像
+on:
+  push:
+    branches: [main]
+    paths: ['actions/go-test-runtime/**', 'actions/ci-policy/policy.json', '.github/workflows/go-test-runtime-image.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    uses: ./.github/workflows/docker-build-push.yml
+    with:
+      image-name: ghcr.io/cuhksz-itso-dev/go-test-runtime
+      context: .
+      dockerfile: actions/go-test-runtime/Dockerfile
+      semver-tags: false
+      metadata-tags: type=raw,value=sha-${{ github.sha }}
+      image-title: Go Test 执行镜像
+      image-description: 统一业务仓库测试执行器，使用 gotestsum 和独立测试数据库
