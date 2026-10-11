@@ -24,7 +24,7 @@ DevPortal 观察开放 PR 和 main
 
 DevPortal 直接观察源码变化，不新增只负责触发或等待的 GitHub Actions job。普通 PR 的测试不依赖部署标签，也不依赖是否请求开发服部署。草稿 PR 沿用跳过策略；转为可审查后重新判定。main 检查独立于当前开发服部署版本，不因已有 PR 占用开发槽位而停测。
 
-第一阶段只接入同仓库 PR；fork PR 必须保留可用的 GitHub CI 路径，直到独立的无凭据执行能力完成验证。不得让 fork PR 长期等待一个永远不会运行的必需状态。
+第一阶段只接入同仓库 PR；fork PR 必须保留可用的 GitHub CI 路径，直到独立的无凭据执行能力完成验证。DevPortal 转述同一完整 head SHA 的 GitHub Actions Go Test 结果，校验应用来源与检查名，不接受候选自行写入的 commit status；这样切换必需 context 后 fork PR 仍有完成路径。
 
 ## 源码身份与状态
 
@@ -42,7 +42,7 @@ PR 执行当前 GitHub 合并预览，记录 repository、PR、head、base、执
 | 环境故障或重试耗尽 | `error` | 明确未完成验证，不伪装成测试通过 |
 | 范围无需执行 | `success` | 明确标记“无需测试”，与实际通过分开记录 |
 
-现有部署状态出口强制写 `success`，不能直接用于 Go Test。Go Test 使用独立状态出口、去重键与过期身份校验。回写失败保留待发送结果，有界重试；平台故障不放行为测试成功。
+现有部署状态出口强制写 `success`，不能直接用于 Go Test。Go Test 使用独立状态出口、去重键与过期身份校验。回写失败保留待发送结果，重试；平台故障不放行为测试成功。
 
 ## 测试契约与隔离
 
