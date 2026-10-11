@@ -87,6 +87,14 @@ permissions:
 
 jobs:
   test:
+    # 三个业务仓库由 DevPortal 直接观察 PR/main 并回传独立状态。
+    # fork 保留原 Actions 执行路径，DevPortal 校验并转述其结果。
+    if: >-
+      (github.repository != 'CUHKSZ-ITSO-Dev/Chat' &&
+       github.repository != 'CUHKSZ-ITSO-Dev/UniAuth' &&
+       github.repository != 'CUHKSZ-ITSO-Dev/open-platform') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name != github.repository)
     name: Go Test
     runs-on: ubuntu-latest
     concurrency:

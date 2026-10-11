@@ -30,6 +30,8 @@ DevPortal 直接观察源码变化，不新增只负责触发或等待的 GitHub
 
 PR 执行当前 GitHub 合并预览，记录 repository、PR、head、base、执行 SHA 和测试配置版本。回传绑定 PR head；main 执行完整 main SHA。结果复用必须核对全部输入；base、源码或测试配置变化均使旧结果失效。不能仅用短 SHA 或成功状态判断可复用。
 
+PR 变更范围复用集中 `changed-paths` 与已有 doublestar 组件，保留重命名的旧、新路径。未命中时明确回传“无需测试”；差异列表不完整、获取失败或匹配语法未知时执行全量测试。普通部署仍只观察既定目标分支，独立 Go Test 观察所有开放、非草稿 PR，包括堆叠 PR。
+
 同一 PR 新提交取代旧请求，停止未完成测试并回收其临时环境；旧执行不得回写覆盖新身份的结果。PR 关闭、变为草稿或源码身份改变时收敛旧任务。控制器重启通过持久记录和 Workflow 状态恢复，不依赖进程内任务表。合并预览暂缺时保持等待，存在冲突时明确失败，不退回测试原始 head。
 
 新增独立 context `Dev Portal / Go Test`，与现有 `Dev Portal / 开发服部署` 分开维护：
@@ -62,7 +64,7 @@ PR 执行当前 GitHub 合并预览，记录 repository、PR、head、base、执
 
 ## 资源、缓存与详情
 
-测试使用独立且有上限的队列，初始同时执行一个任务。按稳定顺序调度，并配置 CPU、内存、临时存储和总执行时限；调整前核对开发节点容量及现有 Argo 全局并发，不能只增加 semaphore 数字。
+测试使用独立且有上限的队列，同时执行最多两个任务，保留 Argo 全局三个名额中的一个供其他任务使用。该容量已结合开发节点 8 CPU / 32 GiB 和真实测试资源消耗核对。控制器在创建 Workflow 前执行准入，排队请求不提前占用 Argo 名额；重启从 API 恢复容量状态。
 
 第一阶段使用有容量限制的任务独立缓存，先验证冷运行正确性和峰值。后续持久缓存必须按 Go 版本、架构、依赖与可信范围隔离，并具备配额、淘汰和清理责任；不同 PR 不共享可写缓存。恢复或初始化缓存前检查空间，不能把当前磁盘不足问题原样搬到 PVC。缓存失败不得被记录为测试断言失败。
 
@@ -77,10 +79,23 @@ DevPortal 详情显示源码身份、排队和实际步骤、耗时、退出码�
 5. 在新结果稳定回传后，逐仓更新必需检查规则并停用旧 Go Test 入口：Chat 的 `.github/workflows/test.yml`，UniAuth 与 open-platform 的 `.github/workflows/go-test.yml`。先核对实际 ruleset 和来源绑定，不能把 Actions 必需检查直接改名当作迁移。
 6. 回滚时先恢复旧 GitHub Go Test 入口与必需检查规则，确认重新产生有效结果，再停止新执行器。其他 GitHub 检查与业务部署路径沿用既有契约。
 
-执行器、DevPortal 独立协调及 Cluster 开发环境模板已实现，切换前继续保留原 GitHub CI 和必需检查。现存 UniAuth 专用发布校验不作为本次迁移的契约或依赖。
+执行器、DevPortal 独立协调及 Cluster 开发环境模板已上线并完成真实执行验收。三个仓库复用工作流的 `@main` 入口，集中停用同仓库 PR/main 的旧 Go Test job；fork PR 保留 Actions 路径并由 DevPortal 验证转述。Chat 和 open-platform 的必需检查改为 `Dev Portal / Go Test`，移除原 Actions 来源绑定；UniAuth 原本未要求 Go Test 必需检查，保持其现有门禁。其他检查、签名及评审规则保持原样。现存 UniAuth 专用发布校验不作为本次迁移的契约或依赖。
 
 ## 数据库版本核对
 
 UniAuth 和 open-platform 都使用 PostgreSQL，并有真实数据库集成测试。旧 UniAuth PostgreSQL 17.11 例外源于 GoFrame pgsql v2.9.1 与 PostgreSQL 18 主键元数据的兼容问题；主分支已经升级到 v2.10.3，open-platform 主分支为 v2.10.0。集中策略统一到固定 digest 的 PostgreSQL 18.6。
 
-UniAuth 主分支 `837b0ed48b65932243b4abd710c2dd14e31655a1` 在 PostgreSQL 17/18 对照中均出现 watcher 回调空指针，位置为 `psqlwatcher/watcher.go:655`，不能通过数据库降级修复。该失败属于业务测试结果，不作为数据库分版本的理由，也不得报告完整测试通过。
+两个仓库当前驱动包含同一主键元数据合并修复，无需再次升级业务依赖。UniAuth 本地 PostgreSQL 17/18 对照均曾出现 watcher 回调空指针（`psqlwatcher/watcher.go:655`），原生集群完整执行未复现；数据库降级不能解决该偶发问题。
+
+## 原生执行验收（2026-10-11）
+
+| 仓库 / 源码 | gotestsum 汇总 | 结果 |
+| --- | --- | --- |
+| Chat main `c01db210635ff156dfb1f5881529d7a566fee242` | 3030 tests，5 existing skips | exit 0，GitHub success |
+| UniAuth main `837b0ed48b65932243b4abd710c2dd14e31655a1` | 714 tests，3 existing skips | exit 0，GitHub success |
+| open-platform main `a23514fc301561209c5a2001d72717abe490e74f` | 213 tests，1 existing skip | exit 0，GitHub success |
+| Chat PR #432 merge `6a0afe16f2929c02c7bfc86afac529b6f5725758` | 3018 tests，5 existing skips | exit 0，回传绑定完整 PR head |
+
+跳过来自原有测试自身的环境守卫，沿用原 CI 开关，没有删减断言。另行完成 PostgreSQL 18 真实迁移 up/down 与版本恢复验证。成功出口要求预期数据库 Pod 实际完成、phase Succeeded 且 exit 0；没有实际执行、步骤全跳过或环境错误均不能记为完整通过。测试阶段已现场确认不挂载 GitHub 或 Kubernetes 令牌。
+
+统一执行采用 [gotestsum 1.13.0](https://github.com/gotestyourself/gotestsum)，保留各仓库原有 go test 参数及准备步骤。DevPortal 全量 Go 测试与 CGO=0 生产构建通过，集中策略测试和 actionlint 通过。

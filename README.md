@@ -12,7 +12,7 @@
 | `.github/workflows/sync-pr-template.yml` | PR 模板进入 `main` 后，自动发现调用公共 PR 检查的仓库，为模板差异创建同步 PR，并由组织自动化令牌绕过门禁合并。 | 自动发现 |
 | `.github/workflows/stale-pr.yml` | 统一标记和关闭不活跃 PR，并维护 `stale` / `no-stale` 标签说明。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/golangci-lint.yml` | 统一 Go 静态检查，支持 LFS、CGO、子目录模块和 glob 变更过滤。 | `Chat`、`open-platform`、`UniAuth` |
-| `.github/workflows/go-test.yml` | 统一单检查 Go 测试，支持路径跳过、LFS、CGO 和可选测试数据库。 | `Chat`、`open-platform`、`UniAuth` |
+| `.github/workflows/go-test.yml` | 三个业务仓库由 DevPortal 执行 Go Test；fork 与其他调用方沿用 Actions。 | `Chat`、`open-platform`、`UniAuth` |
 | `.github/workflows/frontend-suite.yml` | 组合 Lint 与 Chromium、Firefox、WebKit 四项并行检查，业务入口无需参数。 | `UI` |
 | `.github/workflows/frontend-check.yml` | 统一前端检查，支持 Node、pnpm/npm、缓存、Playwright、glob 变更过滤和自定义检查命令。 | `UI`、`UniAuth`、`Gateway` |
 | `.github/workflows/python-uv-check.yml` | 统一 Python uv 检查，支持 uv 安装依赖、路径过滤、环境变量注入和自定义检查命令。 | `WebSearch`、`doc-intelligence` |
@@ -80,7 +80,7 @@ UI 的三个浏览器在 PR 上按下文的已核验映射选择用例，其他�
 
 `前端浏览器基准` 工作流在本仓库手动运行，对同一个 UI 提交 SHA 比较三浏览器的一、两个 worker，关闭重试并核对完整用例身份、预期结果、跳过状态和首次执行结果；缺失报告、空执行、失败、flaky 或覆盖差异均失败。业务代码只检出到临时 runner，不写入业务仓库。工作流使用现有 `ITSO_AUTOMATION_TOKEN` 只读检出私有 UI 仓库，检出后移除 Git 凭据；运行前确保该 token 仍有读取权限。调整镜像或并行度前执行此基准，不用耗时改善替代覆盖核对。共享组件、页面和浏览器行为仍按各业务仓库自己的 E2E 契约验证，不能只凭文件路径推断所有使用方都已覆盖；新增定向映射须核对实际调用方和运行时断言。
 
-业务入口与集中配置沿用现有代码审查规则，不额外配置 CODEOWNERS。集中配置按仓库分别维护测试目录、数据库版本、准备命令、路径过滤、LFS/CGO 和前端工具要求；共享执行器只负责通用步骤。业务新增测试环境、模块或依赖时同步更新对应仓库配置，不能把所有仓库强行套用同一组参数。未纳入集中配置的仓库继续使用原有调用参数。检查结果由独立的 GitHub Actions job 提供，不增加 DevPortal 检查或结果聚合。
+业务入口与集中配置沿用现有代码审查规则，不额外配置 CODEOWNERS。集中配置按仓库分别维护测试目录、数据库版本、准备命令、路径过滤、LFS/CGO 和前端工具要求；共享执行器只负责通用步骤。业务新增测试环境、模块或依赖时同步更新对应仓库配置，不能把所有仓库强行套用同一组参数。未纳入集中配置的仓库继续使用原有调用参数。Chat、UniAuth、open-platform 的 Go Test 由 DevPortal 独立执行并回传 `Dev Portal / Go Test`；其他检查继续使用各自 GitHub Actions job。fork PR 保留原 Actions Go Test，并由 DevPortal 校验同一 head 与应用来源后转述。
 
 ### 检查范围与等待时间
 
@@ -90,7 +90,7 @@ UI 的三个浏览器在 PR 上按下文的已核验映射选择用例，其他�
 - Go 测试在 PR 无相关改动时不 checkout 业务代码；执行测试时使用浅 checkout。Go 缓存按工具链版本区分；Python 检查开启 uv 缓存。前端、Python 与未纳管仓库原有自定义命令和路径参数保留；Redis/RabbitMQ 集成测试继续需要完整 runner 和服务，不能改用 slim。
 - 各检查只取消同一 PR、同一调用工作流和模块的过期任务，前端检查另按检查配置（旧入口按 Playwright 浏览器集合）区分，避免并行引擎互相取消；push 不自动取消。GitHub 托管 runner 的排队仍由 GitHub 分配；`ubuntu-slim` 同样受账户并发限制，轻量化不能保证零等待。
 
-Go Test 缓存以操作系统、架构、Go 版本和依赖锁定文件为键，不再为每个提交 SHA 上传一份相同依赖及编译缓存。依赖未变且缓存命中时不重复保存；Go 仍根据源码及编译参数判断哪些包需要重新编译。新键首次使用可恢复相同依赖的旧缓存，避免迁移期间无谓的冷编译。Git LFS 缓存按所需文件的对象 OID 集合生成键，Go Test 与 lint 复用相同二进制对象，普通代码变更不再制造重复 LFS 缓存。PR 缓存仍受 GitHub 分支作用域限制，无法在不同 PR 之间任意共享；不通过增加工作流、付费 runner 或提高缓存上限绕过这个限制。
+DevPortal Go Test 使用每任务独立、有容量限制的临时缓存，避免恢复大型 Actions 缓存导致磁盘耗尽。以下 Actions 缓存机制用于 fork PR 和其他调用方。Go Test 缓存以操作系统、架构、Go 版本和依赖锁定文件为键，不再为每个提交 SHA 上传一份相同依赖及编译缓存。依赖未变且缓存命中时不重复保存；Go 仍根据源码及编译参数判断哪些包需要重新编译。新键首次使用可恢复相同依赖的旧缓存，避免迁移期间无谓的冷编译。Git LFS 缓存按所需文件的对象 OID 集合生成键，Go Test 与 lint 复用相同二进制对象，普通代码变更不再制造重复 LFS 缓存。PR 缓存仍受 GitHub 分支作用域限制，无法在不同 PR 之间任意共享；不通过增加工作流、付费 runner 或提高缓存上限绕过这个限制。
 
 ### 变更识别与检查范围
 
