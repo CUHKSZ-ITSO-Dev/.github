@@ -22,7 +22,7 @@ def select(event, repository, profile, reliable, files, config, workspace):
     for original_path in files:
         path = original_path.removeprefix(prefix) if prefix else original_path
         documentation = original_path.endswith('.md') and not (prefix and path.startswith(('src/', 'public/')))
-        if original_path.startswith('.github/workflows/') or documentation or original_path == 'AGENTS.md':
+        if original_path.startswith('.github/workflows/') or documentation or (prefix and original_path == 'AGENTS.md'):
             continue
         matched = False
         for group in config['groups']:

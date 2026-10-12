@@ -32,7 +32,7 @@ class SelectionTest(unittest.TestCase):
                          {*self.config['smoke'], 'playwright/new.spec.ts'})
 
     def test_global_critical_and_unmapped_changes_always_run_full(self):
-        for path in ['pnpm-lock.yaml', 'src/router.tsx', 'src/index.css', 'src/stores/a.ts',
+        for path in ['AGENTS.md', 'pnpm-lock.yaml', 'src/router.tsx', 'src/index.css', 'src/stores/a.ts',
                      'playwright/fixtures/bootstrapMocks.ts', 'playwright.config.ts', 'src/components/UpdateNotification/AnnouncementCard.tsx',
                      'src/components/UpdateNotification/UpdateNotificationContent.tsx',
                      'src/pages/NewPage.tsx', "x'; touch /tmp/untrusted; '"]:
