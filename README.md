@@ -113,3 +113,14 @@ DevPortal Go Test 使用每任务独立、有容量限制的临时缓存，避�
 新机制不改已有 workflow/job 的名称和 ID，`workflow-identities.json` 及测试保护这些身份。跳过发生在 job/step 内，保留既有必需检查结果。公共仓库只能控制调用后的执行范围：业务入口若在 `on.paths` 中漏列文件，共享流程无法补启动该 workflow；doc-intelligence 的现有入口仍存在这一上游限制，需在业务仓库单独维护。Docker 的调用方若要缩小范围，也须按自己的 context 明确传参；本次不推测私有业务构建输入。
 
 维护范围策略时运行 `ci-scope`、`ci-e2e`、`ci-policy` 的测试以及现有配置检查和 actionlint，并回放真实 PR 文件列表与 Playwright `--list` 核对选择结果；改变运行时测试行为须补相关浏览器执行。所有范围判断和选择的用例写入 Actions summary，便于区分定向执行、完整回退和跳过原因。
+
+### Cluster Helm 检查
+
+Cluster 的 `Helm Check` 调用 `helm-check.yml`，Helm/Python 版本、检查命令和路径范围由
+`actions/ci-policy/policy.json` 的 `CUHKSZ-ITSO-Dev/Cluster` 配置统一维护。Cluster 保留
+Chart、环境契约检查脚本、测试和锁定的 `requirements-ci.txt`，公共流程不访问集群或发布制品。
+PR 入口始终创建检查，范围判断在 job 内执行；覆盖全部 `scripts/**`，避免新增脚本漏检。
+草稿 PR 仍检查，手动运行执行全量；仅取消同一 PR 的过期检查，main push 不取消。
+执行前固定 Helm 和 Python、缓存 pip 下载，设置 20 分钟超时并记录 runner 资源消耗。
+遥测和三环境探针由发布契约脚本复用已有渲染验证，Python 语法检查覆盖整个 scripts 目录。
+共享工作流新增或执行行为调整时，先验证公共配置与 actionlint，再对 Cluster 精确提交执行完整检查。

@@ -87,6 +87,14 @@
       "always-run-paths": "",
       "predicate-quantifier": "some",
       "skip-draft-pr": true
+    },
+    "helm-check": {
+      "helm-version": "v4.3.0",
+      "python-version": "3.13",
+      "install-command": "python -m pip install --disable-pip-version-check -r requirements-ci.txt",
+      "changed-paths": "**/*\n",
+      "skip-draft-pr": false,
+      "check-command": ""
     }
   },
   "repositories": {
@@ -236,6 +244,12 @@
         "scope-only": true,
         "ignored-paths": "docs/**\nREADME.md\nLICENSE\n.github/workflows/**\n",
         "predicate-quantifier": "some-with-excludes"
+      }
+    },
+    "CUHKSZ-ITSO-Dev/Cluster": {
+      "helm-check": {
+        "changed-paths": "gpt-platform/**\ngpt-docs/**\ngpt-platform-env/**\ngpt-delivery-pipeline/**\ngpt-retention/**\nscripts/**\ninfrastructure-images/**\ninfrastructure-values/**\ninfrastructure-versions.yaml\nretention-policy.json\nrequirements-ci.txt\ndocs/infrastructure-version-governance.md\n.github/workflows/helm-check.yaml\n",
+        "check-command": "helm lint gpt-docs\nhelm lint gpt-retention\nfor environment in dev uat prod; do\n  helm lint gpt-platform -f \"gpt-platform-env/${environment}/values.yaml\"\ndone\nfor scope in shared secret-reloader dev uat prod; do\n  helm lint gpt-delivery-pipeline -f \"gpt-delivery-pipeline/scopes/${scope}.yaml\"\ndone\npython -m unittest discover -s scripts -p 'test_*.py'\npython scripts/check_delivery_scopes.py\npython scripts/check_release_manifest.py\npython scripts/check_retention_policy.py\npython scripts/check_resource_naming.py\npython scripts/check_infrastructure_versions.py\npython scripts/check_secret_catalog.py\npython scripts/render_secret_catalog.py --check\npython -m compileall -q scripts\n"
       }
     }
   }

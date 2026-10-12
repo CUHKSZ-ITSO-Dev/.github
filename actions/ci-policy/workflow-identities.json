@@ -110,5 +110,11 @@
     "jobs": {
       "golangci": "golangci-lint"
     }
+  },
+  ".github/workflows/helm-check.yml": {
+    "name": "Helm Check",
+    "jobs": {
+      "check": "check"
+    }
   }
 }

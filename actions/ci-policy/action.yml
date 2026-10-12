@@ -12,6 +12,12 @@ inputs:
     required: true
     description: 未纳管仓库原有参数
 outputs:
+  helm-version:
+    description: Helm 检查版本
+    value: ${{ steps.resolve.outputs.helm-version }}
+  python-version:
+    description: Python 检查版本
+    value: ${{ steps.resolve.outputs.python-version }}
   minimum-free-disk-gib:
     description: 缓存恢复后目标剩余磁盘空间 GiB
     value: ${{ steps.resolve.outputs.minimum-free-disk-gib }}

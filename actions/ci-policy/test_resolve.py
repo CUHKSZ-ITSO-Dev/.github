@@ -9,6 +9,19 @@ class PolicyTest(unittest.TestCase):
     def setUp(self):
         self.policy = json.loads(Path(__file__).with_name('policy.json').read_text())
 
+    def test_cluster_cannot_override_checks_or_hide_new_scripts(self):
+        result = resolve('CUHKSZ-ITSO-Dev/Cluster', 'helm-check',
+                         {'check-command': 'true', 'changed-paths': 'never/**',
+                          'skip-draft-pr': True}, self.policy)
+        self.assertIn("python -m unittest discover", result['check-command'])
+        for script in ('check_delivery_scopes.py', 'check_release_manifest.py',
+                       'check_retention_policy.py', 'check_resource_naming.py',
+                       'check_infrastructure_versions.py', 'check_secret_catalog.py'):
+            self.assertIn(script, result['check-command'])
+        self.assertIn('scripts/**', result['changed-paths'])
+        self.assertFalse(result['skip-draft-pr'])
+        self.assertNotIn('check_chart_runtime.py', result['check-command'])
+
     def test_caller_cannot_disable_race_or_replace_preparation(self):
         result = resolve('CUHKSZ-ITSO-Dev/Chat', 'go-test',
                          {'test-flags': '', 'prepare-command': 'true',

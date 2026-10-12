@@ -1,0 +1,72 @@
+name: Helm Check
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: shared-helm-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: 读取统一 CI 配置
+        id: policy
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-policy@main
+        with:
+          kind: helm-check
+          legacy-inputs: '{}'
+
+      - name: 判断检查范围
+        id: plan
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-scope@main
+        with:
+          changed-paths: ${{ steps.policy.outputs.changed-paths }}
+          skip-draft-pr: ${{ steps.policy.outputs.skip-draft-pr }}
+
+      - uses: actions/checkout@v7.0.1
+        if: steps.plan.outputs.run == 'true' && github.event_name != 'push'
+        with:
+          persist-credentials: false
+
+      - name: 开始资源采样
+        if: steps.plan.outputs.run == 'true'
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
+        with:
+          phase: start
+
+      - name: 安装 Python
+        if: steps.plan.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ steps.policy.outputs.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+
+      - name: 安装 Helm
+        if: steps.plan.outputs.run == 'true'
+        uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ steps.policy.outputs.helm-version }}
+
+      - name: 安装验证依赖
+        if: steps.plan.outputs.run == 'true'
+        run: ${{ steps.policy.outputs.install-command }}
+
+      - name: 验证 Chart 与仓库契约
+        if: steps.plan.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          ${{ steps.policy.outputs.check-command }}
+
+      - name: 输出资源采样
+        if: always() && steps.plan.outputs.run == 'true'
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
+        with:
+          phase: finish
