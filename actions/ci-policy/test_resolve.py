@@ -82,7 +82,7 @@ class PolicyTest(unittest.TestCase):
                           'pnpm-version': '10.15.1', 'playwright-browsers': '',
                           'changed-paths': 'never/**', 'ignored-paths': '**/*'}, self.policy)
         self.assertEqual(result['check-command'].strip(), 'pnpm run check')
-        self.assertEqual(result['playwright-browsers'], 'chromium')
+        self.assertEqual(result['playwright-browsers'], 'chromium firefox')
         self.assertEqual(result['node-version'], '26.10.0')
         self.assertEqual(result['pnpm-version'], '12.8.1')
         self.assertEqual(result['ignored-paths'], '')

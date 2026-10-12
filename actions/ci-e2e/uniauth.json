@@ -1,0 +1,25 @@
+{
+  "repository": "CUHKSZ-ITSO-Dev/UniAuth",
+  "profiles": [
+    ""
+  ],
+  "path-prefix": "uniauth-vite/",
+  "test-pattern": "tests/ui/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\\.spec\\.ts",
+  "smoke": [
+    "tests/ui/design-system.spec.ts"
+  ],
+  "groups": [
+    {
+      "name": "auto-quota-list",
+      "sources": [
+        "src/pages/AutoQuotaPoolListPage/index.tsx",
+        "src/pages/AutoQuotaPoolListPage/columns.tsx"
+      ],
+      "tests": [
+        "tests/ui/real-pages.spec.ts",
+        "tests/ui/cron-scroll-regressions.spec.ts"
+      ]
+    }
+  ],
+  "smoke-name": "共享设计契约冒烟"
+}
