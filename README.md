@@ -121,6 +121,6 @@ Cluster 的 `Helm Check` 调用 `helm-check.yml`，Helm/Python 版本、检查�
 Chart、环境契约检查脚本、测试和锁定的 `requirements-ci.txt`，公共流程不访问集群或发布制品。
 PR 入口始终创建检查，范围判断在 job 内执行；覆盖全部 `scripts/**`，避免新增脚本漏检。
 草稿 PR 仍检查，手动运行执行全量；仅取消同一 PR 的过期检查，main push 不取消。
-执行前固定 Helm 和 Python、缓存 pip 下载，设置 20 分钟超时并记录 runner 资源消耗。
+执行前固定 Ubuntu 24.04、Helm 和 Python、缓存 pip 下载，设置 20 分钟超时并记录 runner 资源消耗。
 遥测和三环境探针由发布契约脚本复用已有渲染验证，Python 语法检查覆盖整个 scripts 目录。
 共享工作流新增或执行行为调整时，先验证公共配置与 actionlint，再对 Cluster 精确提交执行完整检查。

@@ -10,7 +10,7 @@ permissions:
 jobs:
   check:
     name: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     concurrency:
       group: shared-helm-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -43,7 +43,7 @@ jobs:
 
       - name: 安装 Python
         if: steps.plan.outputs.run == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7.0.0
         with:
           python-version: ${{ steps.policy.outputs.python-version }}
           cache: pip
