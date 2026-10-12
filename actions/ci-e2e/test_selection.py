@@ -27,12 +27,16 @@ class SelectionTest(unittest.TestCase):
         for path in self.config['groups'][0]['sources']:
             self.assertEqual(set(self.result([path])), {*self.config['smoke'], self.preview})
 
+    def test_ui_normative_markdown_preserves_original_selection(self):
+        source = self.config['groups'][0]['sources'][0]
+        self.assertEqual(self.result([source, 'AGENTS.md']), self.result([source]))
+
     def test_test_only_change_selects_new_test_and_smoke(self):
         self.assertEqual(set(self.result(['playwright/new.spec.ts'])),
                          {*self.config['smoke'], 'playwright/new.spec.ts'})
 
     def test_global_critical_and_unmapped_changes_always_run_full(self):
-        for path in ['AGENTS.md', 'pnpm-lock.yaml', 'src/router.tsx', 'src/index.css', 'src/stores/a.ts',
+        for path in ['pnpm-lock.yaml', 'src/router.tsx', 'src/index.css', 'src/stores/a.ts',
                      'playwright/fixtures/bootstrapMocks.ts', 'playwright.config.ts', 'src/components/UpdateNotification/AnnouncementCard.tsx',
                      'src/components/UpdateNotification/UpdateNotificationContent.tsx',
                      'src/pages/NewPage.tsx', "x'; touch /tmp/untrusted; '"]:
