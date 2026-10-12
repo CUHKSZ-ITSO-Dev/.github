@@ -54,10 +54,6 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(self.result(['src/pages/OtherPage.tsx',
                                      self.config['groups'][0]['sources'][0]]), [])
 
-
-if __name__ == '__main__':
-    unittest.main()
-
 class UniAuthSelectionTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -122,3 +118,7 @@ class UniAuthSelectionTest(unittest.TestCase):
         self.assertEqual(selected_command('CUHKSZ-ITSO-Dev/UniAuth', False, paths, [], 'pnpm run check', self.workspace), 'pnpm run check')
         self.assertIn('UNIAUTH_CHECK_PATHS_JSON=', selected_command('CUHKSZ-ITSO-Dev/UniAuth', True,
                       paths + ['uniauth-vite/src/new.ts'], [], 'pnpm run check', self.workspace))
+
+
+if __name__ == '__main__':
+    unittest.main()

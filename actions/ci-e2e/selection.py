@@ -1,4 +1,4 @@
-"""Select verified UI test groups, falling back to the existing full command."""
+"""Select verified frontend test groups, falling back to the existing full command."""
 import json
 import os
 from pathlib import Path
