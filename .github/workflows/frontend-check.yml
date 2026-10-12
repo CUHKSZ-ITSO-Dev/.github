@@ -114,13 +114,13 @@ jobs:
           command: ${{ steps.policy.outputs.check-command }}
 
       - name: 安装 pnpm
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.package-manager == 'pnpm'
+        if: steps.plan.outputs.run == 'true' && steps.e2e.outputs.dependencies-required != 'false' && steps.policy.outputs.package-manager == 'pnpm'
         uses: pnpm/action-setup@v6.1.0
         with:
           version: ${{ steps.policy.outputs.pnpm-version }}
 
       - name: 安装 Node.js
-        if: steps.plan.outputs.run == 'true'
+        if: steps.plan.outputs.run == 'true' && steps.e2e.outputs.dependencies-required != 'false'
         uses: actions/setup-node@v7.1.0
         with:
           node-version: ${{ steps.policy.outputs.node-version }}
@@ -128,12 +128,12 @@ jobs:
           cache-dependency-path: ${{ steps.policy.outputs.cache-dependency-path }}
 
       - name: 安装依赖
-        if: steps.plan.outputs.run == 'true'
+        if: steps.plan.outputs.run == 'true' && steps.e2e.outputs.dependencies-required != 'false'
         working-directory: ${{ steps.policy.outputs.working-directory }}
         run: ${{ steps.policy.outputs.install-command }}
 
       - name: 安装 Playwright 浏览器
-        if: steps.plan.outputs.run == 'true' && steps.policy.outputs.playwright-browsers != '' && steps.policy.outputs.playwright-image == ''
+        if: steps.plan.outputs.run == 'true' && steps.e2e.outputs.browser-required != 'false' && steps.policy.outputs.playwright-browsers != '' && steps.policy.outputs.playwright-image == ''
         working-directory: ${{ steps.policy.outputs.working-directory }}
         run: pnpm exec playwright install --with-deps ${{ steps.policy.outputs.playwright-browsers }}
 

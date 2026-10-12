@@ -14,6 +14,12 @@ inputs:
     required: true
     description: 原始完整命令
 outputs:
+  dependencies-required:
+    description: 是否需要安装工具链与依赖
+    value: ${{ steps.select.outputs.dependencies-required }}
+  browser-required:
+    description: 是否需要安装和执行浏览器
+    value: ${{ steps.select.outputs.browser-required }}
   command:
     description: 最终检查命令
     value: ${{ steps.select.outputs.command }}
