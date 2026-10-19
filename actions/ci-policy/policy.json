@@ -125,6 +125,10 @@
         "lfs-include": "lib/linux-amd64/*,lib/models/**,internal/service/tokencount/assets/**",
         "cgo-enabled": "1",
         "cgo-library-dir": "lib/linux-amd64"
+      },
+      "migration-files": {
+        "directory": "manifest/sql/mssql",
+        "entry": "pr-check"
       }
     },
     "CUHKSZ-ITSO-Dev/UniAuth": {
@@ -151,6 +155,10 @@
         "go-version-file": "uniauth-gf/go.mod",
         "cache-dependency-path": "uniauth-gf/go.sum",
         "changed-paths": "uniauth-gf/**/*.go\nuniauth-gf/go.mod\nuniauth-gf/go.sum\nuniauth-gf/.golangci.yml\nuniauth-gf/.golangci.yaml\nuniauth-gf/manifest/sql/postgres/**\nuniauth-gf/resource/**\ngo.work\ngo.work.sum\n"
+      },
+      "migration-files": {
+        "directory": "uniauth-gf/manifest/sql/postgres",
+        "entry": "pr-check"
       }
     },
     "CUHKSZ-ITSO-Dev/open-platform": {
@@ -188,6 +196,10 @@
         "cgo-enabled": "1",
         "cgo-library-dir": "lib/linux-amd64",
         "binary-check-command": "cat > manifest/config/config.yaml <<'YAML'\nserver:\n  httpPort: 8032\n  openapiPath: \"/api.json\"\n  swaggerPath: \"/swagger\"\nlogger:\n  level: \"debug\"\n  stdout: true\ndatabase:\n  default:\n    link: \"pgsql:postgres:postgres@tcp(localhost:5432)/open_platform_migration_app_check\"\n    timezone: \"Asia/Shanghai\"\n    createdAt: \"created_at\"\n    updatedAt: \"updated_at\"\n    debug: false\nclient:\n  uniauth:\n    url: \"http://127.0.0.1:8004\"\njaeger:\n  serviceName: \"open-platform\"\n  endpoint: \"\"\n  traceToken: \"\"\nYAML\ngrep -q 'Name:  migrateCommandName' internal/cmd/cmd.go\ngrep -q 'RegisterSubcommands() error' internal/cmd/cmd.go\ngrep -q 'cmd.RegisterSubcommands()' main.go\ngrep -q 'case \"status\"' internal/cmd/cmd.go\ngrep -q 'case \"baseline\"' internal/cmd/cmd.go\ngrep -q 'case \"down\"' internal/cmd/cmd.go\ngrep -q 'case \"force\"' internal/cmd/cmd.go\ngrep -q 'case \"goto\", \"to\"' internal/cmd/cmd.go\ngo run main.go migrate version\ngo run main.go migrate status\ngo run main.go migrate up\ngo run main.go migrate status\npsql -h localhost -p 5432 -U postgres -d open_platform_migration_app_check \\\n  -v ON_ERROR_STOP=1 \\\n  -f scripts/assert_postgres_schema.sql\ngo run main.go migrate force -1\ngo run main.go migrate baseline\ngo run main.go migrate status\ngo test ./internal/cmd -run TestMigration -count=1\ngo test ./internal/service/migration -run TestUpWithGoFrameDefaultConnection -count=1\n"
+      },
+      "migration-files": {
+        "directory": "manifest/sql/postgres",
+        "entry": "pr-check"
       }
     },
     "CUHKSZ-ITSO-Dev/UI": {
@@ -232,11 +244,11 @@
     "CUHKSZ-ITSO-Dev/doc-intelligence": {
       "python-uv-check": {
         "scope-only": true,
-        "changed-paths": "app/**\nparser/**\nprotos/**\ntests/**\npyproject.toml\nuv.lock\n.python-version\nconftest.py\npytest.ini\nruff.toml\n.ruff.toml\nsetup.cfg\n**/*.py\n**/*.proto\n.env\n.coveragerc\n"
+        "changed-paths": "app/**\nparser/**\nprotos/**\ntests/**\npyproject.toml\nuv.lock\n.python-version\nconftest.py\npytest.ini\nruff.toml\n.ruff.toml\nsetup.cfg\n**/*.py\n**/*.proto\n.env\n.coveragerc\n.github/workflows/ci-tests.yml\n"
       },
       "python-uv-redis-rabbitmq-check": {
         "scope-only": true,
-        "changed-paths": "app/**\nparser/**\nprotos/**\ntests/**\npyproject.toml\nuv.lock\n.python-version\nconftest.py\npytest.ini\nruff.toml\n.ruff.toml\nsetup.cfg\n**/*.py\n**/*.proto\n.env\n.coveragerc\n"
+        "changed-paths": "app/**\nparser/**\nprotos/**\ntests/**\npyproject.toml\nuv.lock\n.python-version\nconftest.py\npytest.ini\nruff.toml\n.ruff.toml\nsetup.cfg\n**/*.py\n**/*.proto\n.env\n.coveragerc\n.github/workflows/ci-tests.yml\n"
       }
     },
     "CUHKSZ-ITSO-Dev/WebSearch": {
@@ -250,6 +262,35 @@
       "helm-check": {
         "changed-paths": "gpt-platform/**\ngpt-docs/**\ngpt-platform-env/**\ngpt-delivery-pipeline/**\ngpt-retention/**\ngpt-sandbox/**\nscripts/**\ninfrastructure-images/**\ninfrastructure-values/**\ninfrastructure-versions.yaml\nretention-policy.json\nrequirements-ci.txt\ndocs/infrastructure-version-governance.md\n.github/workflows/helm-check.yaml\n",
         "check-command": "helm lint gpt-docs\nhelm lint gpt-retention\nhelm lint gpt-sandbox\nfor environment in dev uat prod; do\n  helm lint gpt-platform -f \"gpt-platform-env/${environment}/values.yaml\"\ndone\nfor scope in shared secret-reloader dev uat prod; do\n  helm lint gpt-delivery-pipeline -f \"gpt-delivery-pipeline/scopes/${scope}.yaml\"\ndone\npython -m unittest discover -s scripts -p 'test_*.py'\npython scripts/check_delivery_scopes.py\npython scripts/check_release_manifest.py\npython scripts/check_retention_policy.py\npython scripts/check_resource_naming.py\npython scripts/check_infrastructure_versions.py\npython scripts/check_secret_catalog.py\npython scripts/render_secret_catalog.py --check\npython -m compileall -q scripts\n"
+      }
+    },
+    "CUHKSZ-ITSO-Dev/Doubao-Speech-Service": {
+      "migration-files": {
+        "directory": "migrations/postgres",
+        "entry": "go-test"
+      },
+      "go-test": {
+        "working-directory": ".",
+        "go-version-file": "go.mod",
+        "changed-paths": "**/*.go\ngo.mod\ngo.sum\ngo.work\ngo.work.sum\n**/testdata/**\nDockerfile\n.github/workflows/build.yaml\nmigrations/postgres/**\nmanifest/migrations/**\n",
+        "database-kind": "postgres",
+        "database-name": "doubao_migration_test_ci",
+        "prepare-command": "echo \"DOUBAO_MIGRATION_TEST_DSN=pgsql:postgres:postgres@tcp(localhost:5432)/doubao_migration_test_ci\" >> \"$GITHUB_ENV\"\n"
+      }
+    },
+    "CUHKSZ-ITSO-Dev/Docs": {
+      "frontend-check": {
+        "working-directory": "web",
+        "pnpm-version": "12.8.1",
+        "cache-dependency-path": "web/pnpm-lock.yaml",
+        "changed-paths": "web/**\n.github/workflows/frontend-check.yml\n",
+        "check-command": "pnpm run typecheck\npnpm test\n"
+      }
+    },
+    "CUHKSZ-ITSO-Dev/rag": {
+      "python-uv-check": {
+        "scope-only": true,
+        "changed-paths": "app/**\ntests/**\npackages/**\nprotos/**\nmain.py\npyproject.toml\nuv.lock\npytest.ini\nalembic.ini\n.github/workflows/ci.yml\n"
       }
     }
   }

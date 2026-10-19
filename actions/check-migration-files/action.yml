@@ -1,0 +1,30 @@
+name: 检查迁移文件
+description: 按可信集中配置校验迁移编号、上下行配对和历史 SQL 不可变。
+inputs:
+  entry:
+    required: true
+    description: 当前共享检查入口。
+  checkout:
+    required: false
+    default: "false"
+    description: 当前入口尚未检出业务代码时设为 true。
+runs:
+  using: composite
+  steps:
+    - name: 读取迁移检查配置
+      id: config
+      shell: bash
+      env:
+        CHECK_ENTRY: ${{ inputs.entry }}
+      run: python3 "$GITHUB_ACTION_PATH/check.py" --configure
+    - uses: actions/checkout@v7.0.1
+      if: steps.config.outputs.enabled == 'true' && inputs.checkout == 'true'
+      with:
+        persist-credentials: false
+        fetch-depth: 0
+    - name: 校验迁移文件
+      if: steps.config.outputs.enabled == 'true'
+      shell: bash
+      env:
+        CHECK_ENTRY: ${{ inputs.entry }}
+      run: python3 "$GITHUB_ACTION_PATH/check.py"

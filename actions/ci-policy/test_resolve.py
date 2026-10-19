@@ -52,6 +52,30 @@ class PolicyTest(unittest.TestCase):
         self.assertIn('echo "UNIAUTH_DATABASE_TEST=1" >> "$GITHUB_ENV"', result['prepare-command'])
         self.assertIn('-race', result['test-flags'])
 
+    def test_doubao_migration_round_trip_receives_an_isolated_database(self):
+        result = resolve('CUHKSZ-ITSO-Dev/Doubao-Speech-Service', 'go-test',
+                         {'database-kind': 'none', 'prepare-command': ''}, self.policy)
+        self.assertEqual(result['database-kind'], 'postgres')
+        self.assertIn('doubao_migration_test_', result['database-name'])
+        self.assertIn('DOUBAO_MIGRATION_TEST_DSN', result['prepare-command'])
+        self.assertIn('/' + result['database-name'], result['prepare-command'])
+        self.assertIn('"$GITHUB_ENV"', result['prepare-command'])
+        for path in ['migrations/postgres/**', 'manifest/migrations/**', 'Dockerfile']:
+            self.assertIn(path, result['changed-paths'])
+
+    def test_docs_and_rag_have_their_existing_quality_commands(self):
+        docs = resolve('CUHKSZ-ITSO-Dev/Docs', 'frontend-check',
+                       {'check-command': 'true'}, self.policy)
+        self.assertEqual(docs['working-directory'], 'web')
+        self.assertIn('pnpm run typecheck', docs['check-command'])
+        self.assertIn('pnpm test', docs['check-command'])
+        rag = resolve('CUHKSZ-ITSO-Dev/rag', 'python-uv-check',
+                      {'sync-command': 'uv sync --extra dev --frozen',
+                       'check-command': 'uv run pytest -q tests/contract tests/unit'}, self.policy)
+        self.assertIn('--extra dev', rag['sync-command'])
+        self.assertIn('tests/contract tests/unit', rag['check-command'])
+        self.assertIn('app/**', rag['changed-paths'])
+
     def test_new_pr_database_regressions_export_the_prepared_database(self):
         for repo, variables, database in [
             ('UniAuth', ['PSQL_WATCHER_TEST_DATABASE_URL', 'DASHBOARD_TEST_DATABASE_URL'],
