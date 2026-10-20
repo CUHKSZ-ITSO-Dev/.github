@@ -80,19 +80,30 @@ on:
         required: false
         type: boolean
         default: true
+      test-selection:
+        required: false
+        type: string
+        default: "false"
+      test-shards:
+        required: false
+        type: number
+        default: 1
 
 permissions:
   contents: read
   pull-requests: read
 
 jobs:
-  test:
-    name: Go Test
+  plan:
+    name: Go Test 计划
     runs-on: ubuntu-latest
-    timeout-minutes: 110
+    timeout-minutes: 15
     concurrency:
       group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      matrix: ${{ steps.shards.outputs.matrix || '{"include":[{"index":1,"packages":"./..."}]}' }}
     steps:
       - name: 读取统一 CI 配置
         id: policy
@@ -107,11 +118,6 @@ jobs:
           entry: go-test
           checkout: "true"
 
-      - name: 开始资源采样
-        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
-        with:
-          phase: start
-
       - name: 判断检查范围
         id: plan
         uses: CUHKSZ-ITSO-Dev/.github/actions/ci-scope@main
@@ -119,13 +125,48 @@ jobs:
           changed-paths: ${{ steps.policy.outputs.changed-paths }}
           skip-draft-pr: ${{ steps.policy.outputs.skip-draft-pr }}
 
+      - name: 计算测试范围与分片
+        id: shards
+        if: steps.plan.outputs.run == 'true'
+        uses: CUHKSZ-ITSO-Dev/.github/actions/go-test-plan@main
+        with:
+          policy-json: ${{ toJSON(steps.policy.outputs) }}
+          reliable: ${{ steps.plan.outputs.reliable }}
+          files-json: ${{ steps.plan.outputs.files }}
+
+  shard:
+    name: Go Test 分片 ${{ matrix.index }}
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    concurrency:
+      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-shard-${{ matrix.index }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: 读取统一 CI 配置
+        id: policy
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-policy@main
+        with:
+          kind: go-test
+          legacy-inputs: ${{ toJSON(inputs) }}
+
+      - name: 开始资源采样
+        uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
+        with:
+          phase: start
+
       - name: 在 GitHub runner 执行 Go Test
         id: primary
-        if: steps.plan.outputs.run == 'true'
         continue-on-error: true
         uses: CUHKSZ-ITSO-Dev/.github/actions/go-test-hosted@main
         with:
           policy-json: ${{ toJSON(steps.policy.outputs) }}
+          test-packages: ${{ matrix.packages }}
+          cache-suffix: -shard-${{ matrix.index }}
 
       - name: 确认失败原因并按需回退 DevPortal
         if: steps.primary.outcome == 'failure' && !cancelled()
@@ -138,3 +179,35 @@ jobs:
         uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
         with:
           phase: finish
+
+  test:
+    name: Go Test
+    needs: [plan, shard]
+    if: always() && !cancelled()
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    concurrency:
+      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: 汇总 Go Test 结果
+        shell: bash
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          PLAN_RUN: ${{ needs.plan.outputs.run }}
+          SHARD_RESULT: ${{ needs.shard.result }}
+        run: |
+          set -euo pipefail
+          if [ "$PLAN_RESULT" != 'success' ]; then
+            echo "::error::范围与分片计划未成功：$PLAN_RESULT"
+            exit 1
+          fi
+          if [ "$PLAN_RUN" != 'true' ]; then
+            echo "无相关变更或草稿 PR，Go Test 未执行。"
+            exit 0
+          fi
+          if [ "$SHARD_RESULT" != 'success' ]; then
+            echo "::error::Go Test 分片结果：$SHARD_RESULT"
+            exit 1
+          fi
+          echo "Go Test 全部通过。"

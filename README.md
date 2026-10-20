@@ -12,7 +12,7 @@
 | `.github/workflows/sync-pr-template.yml` | PR 模板进入 `main` 后，自动发现调用公共 PR 检查的仓库，为模板差异创建同步 PR，并由组织自动化令牌绕过门禁合并。 | 自动发现 |
 | `.github/workflows/stale-pr.yml` | 统一标记和关闭不活跃 PR，并维护 `stale` / `no-stale` 标签说明。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/golangci-lint.yml` | 统一 Go 静态检查，支持 LFS、CGO、子目录模块和 glob 变更过滤。 | `Chat`、`open-platform`、`UniAuth` |
-| `.github/workflows/go-test.yml` | 原 Actions 执行 Go Test，三个业务仓库仅在磁盘不足时回退 DevPortal。 | `Chat`、`open-platform`、`UniAuth` |
+| `.github/workflows/go-test.yml` | 原 Actions 执行 Go Test，支持变更闭包定向与分片并发，三个业务仓库仅在磁盘不足时回退 DevPortal。 | `Chat`、`open-platform`、`UniAuth`、`Doubao-Speech-Service` |
 | `.github/workflows/frontend-suite.yml` | 组合 Lint 与 Chromium、Firefox、WebKit 四项并行检查，业务入口无需参数。 | `UI` |
 | `.github/workflows/frontend-check.yml` | 统一前端检查，支持 Node、pnpm/npm、缓存、Playwright、glob 变更过滤和自定义检查命令。 | `UI`、`UniAuth`、`Gateway` |
 | `.github/workflows/python-uv-check.yml` | 统一 Python uv 检查，支持 uv 安装依赖、路径过滤、环境变量注入和自定义检查命令。 | `WebSearch`、`doc-intelligence` |
@@ -105,12 +105,12 @@ UI 的三个浏览器在 PR 上按下文的已核验映射选择用例，其他�
 ### 检查范围与等待时间
 
 - Chat、UniAuth、open-platform、UI 仅修改业务 CI 调用入口时，不再启动 Go 测试、lint、前端依赖安装或迁移数据库；PR 规范检查通过 actionlint 验证改动的工作流。检查名称保持不变，无相关改动的检查成功返回，避免 required check 一直等待。集中配置或共享执行器修改在本仓库运行配置、路径选择、提交规范、磁盘策略测试和 actionlint；修改实际测试行为后还须按受影响仓库验证完整测试。
-- Go 测试关注源码、模块依赖、工作区、迁移 SQL、测试夹具及仓库使用的嵌入资源；linter 配置仅触发 lint。UniAuth lint 不再因普通后端文档变化而运行。源码或依赖变化仍运行完整包测试，保留跨包回归及 race；不按单个修改文件猜测依赖范围。
+- Go 测试关注源码、模块依赖、工作区、迁移 SQL、测试夹具及仓库使用的嵌入资源；linter 配置仅触发 lint。UniAuth lint 不再因普通后端文档变化而运行。开启 `test-selection` 的仓库按 `go list` 依赖闭包（含 TestImports / XTestImports / go:embed / testdata 归属）选择受影响包执行测试；依赖、工作区、vendor、未映射文件、证据不足或非 PR 事件一律回退全量，不按单个修改文件猜测依赖范围。
 - PR 规范检查和本仓库配置检查使用 `ubuntu-slim`。提交消息沿用 commitlint 19 的 conventional 规则及仓库 `commitlint.config.mjs`，使用锁定的 npm 依赖缓存，去掉 Docker 镜像下载、完整 Git 历史和短任务资源采样。提交数量仍限制在 1–30 个，描述小节要求不变。
-- Go 测试在 PR 无相关改动时不 checkout 业务代码；执行测试时使用浅 checkout。Go 缓存按工具链版本区分；Python 检查开启 uv 缓存。前端、Python 与未纳管仓库原有自定义命令和路径参数保留；Redis/RabbitMQ 集成测试继续需要完整 runner 和服务，不能改用 slim。
+- Go 测试在 PR 无相关改动时不 checkout 业务代码；执行测试时使用浅 checkout。Go 缓存按工具链版本区分，编译缓存允许同键前缀回退以覆盖依赖升级场景，模块下载缓存按依赖锁定文件为键。数据库镜像在 checkout 后后台预拉取，就绪等待隐藏在 Go 安装与编译期间。Python 检查开启 uv 缓存。前端、Python 与未纳管仓库原有自定义命令和路径参数保留；Redis/RabbitMQ 集成测试继续需要完整 runner 和服务，不能改用 slim。
 - 各检查只取消同一 PR、同一调用工作流和模块的过期任务，前端检查另按检查配置（旧入口按 Playwright 浏览器集合）区分，避免并行引擎互相取消；push 不自动取消。GitHub 托管 runner 的排队仍由 GitHub 分配；`ubuntu-slim` 同样受账户并发限制，轻量化不能保证零等待。
 
-DevPortal Go Test 使用每任务独立、有容量限制的临时缓存，避免恢复大型 Actions 缓存导致磁盘耗尽。Actions 在恢复缓存前释放不使用的 SDK；只恢复编译缓存，不恢复巨大的模块下载缓存。Go Test 缓存以操作系统、架构、Go 版本和依赖锁定文件为键，不再为每个提交 SHA 上传一份相同依赖及编译缓存。依赖未变且缓存命中时不重复保存；Go 仍根据源码及编译参数判断哪些包需要重新编译。新缓存键不回退到旧的大型缓存。Git LFS 缓存按所需文件的对象 OID 集合生成键，Go Test 与 lint 复用相同二进制对象，普通代码变更不再制造重复 LFS 缓存。PR 缓存仍受 GitHub 分支作用域限制，无法在不同 PR 之间任意共享；不通过增加工作流、付费 runner 或提高缓存上限绕过这个限制。
+DevPortal Go Test 使用每任务独立、有容量限制的临时缓存，避免恢复大型 Actions 缓存导致磁盘耗尽。Actions 在恢复缓存前释放不使用的 SDK；恢复编译缓存与模块下载缓存，不恢复体积更大的模块解压目录——下载缓存按内容寻址，解压仍在本地完成。Go Test 缓存以操作系统、架构、Go 版本和依赖锁定文件为键，不再为每个提交 SHA 上传一份相同依赖及编译缓存；分片场景按分片编号区分后缀并允许同键前缀回退。依赖未变且缓存命中时不重复保存；Go 仍根据源码及编译参数判断哪些包需要重新编译。新缓存键不回退到旧的大型缓存。Git LFS 缓存按所需文件的对象 OID 集合生成键，Go Test 与 lint 复用相同二进制对象，普通代码变更不再制造重复 LFS 缓存。PR 缓存仍受 GitHub 分支作用域限制，无法在不同 PR 之间任意共享；不通过增加工作流、付费 runner 或提高缓存上限绕过这个限制。
 
 ### 变更识别与检查范围
 
@@ -118,7 +118,8 @@ DevPortal Go Test 使用每任务独立、有容量限制的临时缓存，避�
 
 | 检查 | 范围控制 | 保留的验证 |
 | --- | --- | --- |
-| Go Test / golangci-lint | 源码、模块依赖、工作区、嵌入资源和测试夹具；仓库差异仍由集中配置管理。 | 命中后检查整个相关模块，不按单文件裁剪包；保留 race、数据库集成与生成物验证。 |
+| Go Test | 源码、模块依赖、工作区、嵌入资源和测试夹具；仓库差异仍由集中配置管理。 | 纳管仓库按 `go list` 依赖闭包定向到受影响包并按 `test-shards` 分片并发；无法证明覆盖范围时回退全量。保留 race、数据库集成与生成物验证。 |
+| golangci-lint | 源码、模块依赖、工作区、嵌入资源和测试夹具；仓库差异仍由集中配置管理。 | 命中后检查整个相关模块，不按单文件裁剪包。 |
 | 前端 Lint | 前端相关路径。 | 静态检查、i18n、单测、构建保持全量。 |
 | UI 三浏览器 E2E | `actions/ci-e2e/ui.json` 的已核验源码映射，或直接修改的独立 `.spec.ts`，加固定应用壳冒烟。 | 三引擎、focused-test 防护、原重试和证据上传；非 PR、未知源码、共享夹具、缺失/删除的用例均回退全量。 |
 | Python uv | 未纳管调用方沿用原参数；doc-intelligence 关注 Python、协议、测试及运行/检查配置，WebSearch 仅排除已知文档和 CI 入口。 | 保留调用方的版本、环境变量、依赖安装和完整检查命令，不猜测 Python 动态依赖来裁剪单测。 |
@@ -130,9 +131,9 @@ DevPortal Go Test 使用每任务独立、有容量限制的临时缓存，避�
 
 目前 UI 源码定向映射仅覆盖公告预览页自身及其单测；独立 E2E 文件变更还会执行产品路由、校园入口和主题冒烟。公告共享组件同时用于生产弹窗和历史页，现有冒烟将公告状态置为无新公告，不能证明激活后的生产行为，因此修改这些共享组件仍执行全量。路由、store、全局样式、依赖、构建配置和未映射模块也执行全量。新增映射先核验用例确实激活相关行为，不能以 import 图、URL 或文件名相似替代证据。选中用例在旧分支上不存在时回退全量，不使用 `--pass-with-no-tests`。
 
-新机制不改已有 workflow/job 的名称和 ID，`workflow-identities.json` 及测试保护这些身份。跳过发生在 job/step 内，保留既有必需检查结果。公共仓库只能控制调用后的执行范围：业务入口若在 `on.paths` 中漏列文件，共享流程无法补启动该 workflow；doc-intelligence 的现有入口仍存在这一上游限制，需在业务仓库单独维护。Docker 的调用方若要缩小范围，也须按自己的 context 明确传参；本次不推测私有业务构建输入。
+新机制不改已有 workflow/job 的名称和 ID，`workflow-identities.json` 及测试保护这些身份。跳过发生在 job/step 内，保留既有必需检查结果。Go Test 拆分为计划、分片与聚合 job：计划在单个 job 内完成路径过滤与包级分片计算，分片 job 按 matrix 并发执行且各自保留磁盘不足回退，聚合 job 沿用原 `Go Test` 名称汇总必需检查结果。公共仓库只能控制调用后的执行范围：业务入口若在 `on.paths` 中漏列文件，共享流程无法补启动该 workflow；doc-intelligence 的现有入口仍存在这一上游限制，需在业务仓库单独维护。Docker 的调用方若要缩小范围，也须按自己的 context 明确传参；本次不推测私有业务构建输入。
 
-维护范围策略时运行 `ci-scope`、`ci-e2e`、`ci-policy` 的测试以及现有配置检查和 actionlint，并回放真实 PR 文件列表与 Playwright `--list` 核对选择结果；改变运行时测试行为须补相关浏览器执行。所有范围判断和选择的用例写入 Actions summary，便于区分定向执行、完整回退和跳过原因。
+维护范围策略时运行 `ci-scope`、`ci-e2e`、`ci-policy`、`go-test-plan` 的测试以及现有配置检查和 actionlint，并回放真实 PR 文件列表与 Playwright `--list` 核对选择结果；改变运行时测试行为须补相关浏览器执行。所有范围判断和选择的用例写入 Actions summary，便于区分定向执行、完整回退和跳过原因。
 
 ### Cluster Helm 检查
 

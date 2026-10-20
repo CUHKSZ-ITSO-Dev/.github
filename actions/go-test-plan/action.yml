@@ -1,0 +1,64 @@
+name: Go Test 范围与分片
+description: 按变更依赖闭包选择受影响包并切分分片；证据不足或未启用时回退全量。
+inputs:
+  policy-json:
+    required: true
+    description: 集中 CI 策略
+  reliable:
+    required: false
+    default: 'false'
+    description: ci-scope 输出的变更列表可信度
+  files-json:
+    required: false
+    default: '[]'
+    description: ci-scope 输出的 PR 变更路径 JSON
+outputs:
+  matrix:
+    description: 分片 matrix JSON
+    value: ${{ steps.plan.outputs.matrix }}
+  selection:
+    description: affected、all 或 bypassed
+    value: ${{ steps.plan.outputs.selection }}
+runs:
+  using: composite
+  steps:
+    - name: 判断是否需要包列表
+      id: mode
+      shell: bash
+      env:
+        POLICY_JSON: ${{ inputs.policy-json }}
+      run: |
+        python3 <<'PY' >> "$GITHUB_OUTPUT"
+        import json, os, sys
+        sys.path.insert(0, os.environ['GITHUB_ACTION_PATH'])
+        from plan import wants_listing
+        print('needs-list=' + str(wants_listing(json.loads(os.environ['POLICY_JSON']))).lower())
+        PY
+    - uses: actions/checkout@v7.0.1
+      if: steps.mode.outputs.needs-list == 'true'
+      with:
+        persist-credentials: false
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    - uses: actions/setup-go@v7.0.0
+      if: steps.mode.outputs.needs-list == 'true' && fromJSON(inputs.policy-json).go-version-file != ''
+      with:
+        cache: false
+        go-version-file: ${{ fromJSON(inputs.policy-json).go-version-file }}
+    - uses: actions/setup-go@v7.0.0
+      if: steps.mode.outputs.needs-list == 'true' && fromJSON(inputs.policy-json).go-version-file == '' && fromJSON(inputs.policy-json).go-version != ''
+      with:
+        cache: false
+        go-version: ${{ fromJSON(inputs.policy-json).go-version }}
+    - uses: actions/setup-go@v7.0.0
+      if: steps.mode.outputs.needs-list == 'true' && fromJSON(inputs.policy-json).go-version-file == '' && fromJSON(inputs.policy-json).go-version == ''
+      with:
+        cache: false
+        go-version-file: ${{ fromJSON(inputs.policy-json).working-directory }}/go.mod
+    - name: 计算测试范围与分片
+      id: plan
+      shell: bash
+      env:
+        POLICY_JSON: ${{ inputs.policy-json }}
+        RELIABLE: ${{ inputs.reliable }}
+        FILES_JSON: ${{ inputs.files-json }}
+      run: python3 "$GITHUB_ACTION_PATH/plan.py"

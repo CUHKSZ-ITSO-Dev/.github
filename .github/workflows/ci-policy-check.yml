@@ -29,6 +29,7 @@ jobs:
           python3 -m unittest discover -s actions/check-migration-files
           python3 -m unittest discover -s actions/ci-resources
           python3 -m unittest discover -s actions/go-test-hosted
+          python3 -m unittest discover -s actions/go-test-plan
           python3 -m unittest discover -s actions/go-test-fallback
           python3 -m unittest discover -s actions/go-disk-space
       - name: 准备提交信息与工作流列表

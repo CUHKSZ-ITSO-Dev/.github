@@ -138,9 +138,18 @@ outputs:
   skip-draft-pr:
     description: skip-draft-pr
     value: ${{ steps.resolve.outputs.skip-draft-pr }}
+  sqlserver-image:
+    description: sqlserver-image
+    value: ${{ steps.resolve.outputs.sqlserver-image }}
   test-flags:
     description: test-flags
     value: ${{ steps.resolve.outputs.test-flags }}
+  test-selection:
+    description: test-selection
+    value: ${{ steps.resolve.outputs.test-selection }}
+  test-shards:
+    description: test-shards
+    value: ${{ steps.resolve.outputs.test-shards }}
   working-directory:
     description: working-directory
     value: ${{ steps.resolve.outputs.working-directory }}

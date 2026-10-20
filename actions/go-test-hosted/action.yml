@@ -4,6 +4,14 @@ inputs:
   policy-json:
     required: true
     description: 集中 CI 策略
+  test-packages:
+    required: false
+    default: './...'
+    description: 定向测试包列表；默认全量
+  cache-suffix:
+    required: false
+    default: ''
+    description: 分片编译缓存键后缀，避免多分片互相覆盖
 runs:
   using: composite
   steps:
@@ -11,6 +19,21 @@ runs:
       with:
         persist-credentials: false
         ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: 后台拉取测试数据库镜像
+      if: fromJSON(inputs.policy-json).database-kind != 'none'
+      shell: bash
+      env:
+        DATABASE_KIND: ${{ fromJSON(inputs.policy-json).database-kind }}
+        POSTGRES_IMAGE: ${{ fromJSON(inputs.policy-json).postgres-image }}
+        SQLSERVER_IMAGE: ${{ fromJSON(inputs.policy-json).sqlserver-image }}
+      run: |
+        case "$DATABASE_KIND" in
+          postgres) image="$POSTGRES_IMAGE" ;;
+          sqlserver) image="$SQLSERVER_IMAGE" ;;
+          *) exit 0 ;;
+        esac
+        (docker pull "$image" > /tmp/go-test-db-pull.log 2>&1 &)
 
     - name: 设置 Go 编译并发
       env:
@@ -106,6 +129,7 @@ runs:
       env:
         CAPTURE_COMMAND: |
           echo "version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
       shell: bash
       run: python3 "$GITHUB_ACTION_PATH/capture.py"
 
@@ -114,7 +138,17 @@ runs:
       with:
         path: |
           ~/.cache/go-build
-        key: go-test-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-${{ hashFiles(fromJSON(inputs.policy-json).cache-dependency-path) }}
+        key: go-test-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-${{ hashFiles(fromJSON(inputs.policy-json).cache-dependency-path) }}${{ inputs.cache-suffix }}
+        restore-keys: |
+          go-test-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-
+    - name: 恢复 Go 模块下载缓存
+      uses: actions/cache@v6.1.0
+      with:
+        path: |
+          ${{ steps.go-cache.outputs.modcache }}/cache/download
+        key: go-mod-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-${{ hashFiles(fromJSON(inputs.policy-json).cache-dependency-path) }}
+        restore-keys: |
+          go-mod-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-
     - name: 检查编译空间
       env:
         MINIMUM_FREE_GIB: ${{ fromJSON(inputs.policy-json).minimum-free-disk-gib }}
@@ -194,6 +228,7 @@ runs:
     - name: 启动 SQL Server
       if: fromJSON(inputs.policy-json).database-kind == 'sqlserver'
       env:
+        SQLSERVER_IMAGE: ${{ fromJSON(inputs.policy-json).sqlserver-image }}
         CAPTURE_COMMAND: |
           set -euo pipefail
           wait_database() {
@@ -210,7 +245,7 @@ runs:
           docker run -d --name go-test-sqlserver \
             -e ACCEPT_EULA=Y \
             -e 'MSSQL_SA_PASSWORD=DevPass123!' \
-            -p 1433:1433 mcr.microsoft.com/mssql/server:2025-latest@sha256:2b5b581621126574f3d1f75e78d3eebe8d05aedb59ad0cfdf9aa42cb0634d726
+            -p 1433:1433 "$SQLSERVER_IMAGE"
           for _ in {1..60}; do
             if docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
               docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q "CREATE DATABASE [${{ fromJSON(inputs.policy-json).database-name }}]"
@@ -242,10 +277,11 @@ runs:
       env:
         PGPASSWORD: postgres
         TEST_FLAGS: ${{ fromJSON(inputs.policy-json).test-flags }}
+        TEST_PACKAGES: ${{ inputs.test-packages }}
         CAPTURE_COMMAND: |
           set -euo pipefail
-          # shellcheck disable=SC2086 # test-flags 是受控 workflow 输入，需要拆分为 Go 参数。
-          go test ${TEST_FLAGS} ./...
+          # shellcheck disable=SC2086 # test-flags 与 test-packages 是受控输入，需要拆分为 Go 参数。
+          go test ${TEST_FLAGS} ${TEST_PACKAGES}
 
       shell: bash
       run: python3 "$GITHUB_ACTION_PATH/capture.py"

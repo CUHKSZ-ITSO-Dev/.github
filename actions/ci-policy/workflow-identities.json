@@ -35,6 +35,8 @@
   ".github/workflows/go-test.yml": {
     "name": "Go Test",
     "jobs": {
+      "plan": "Go Test 计划",
+      "shard": "Go Test 分片 ${{ matrix.index }}",
       "test": "Go Test"
     }
   },
