@@ -101,6 +101,12 @@ jobs:
           kind: go-test
           legacy-inputs: ${{ toJSON(inputs) }}
 
+      - name: 检查迁移文件
+        uses: CUHKSZ-ITSO-Dev/.github/actions/check-migration-files@main
+        with:
+          entry: go-test
+          checkout: "true"
+
       - name: 开始资源采样
         uses: CUHKSZ-ITSO-Dev/.github/actions/ci-resources@main
         with:

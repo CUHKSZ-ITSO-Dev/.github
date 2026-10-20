@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `.github/pull_request_template.md` | 组织统一 PR 模板，要求填写背景、改动、影响、验证、材料。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `actions/check-pr-body/action.yml` | 读取公共 PR 模板中的二级标题，动态检查 PR 描述是否填写对应小节。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
-| `.github/workflows/pr-check.yml` | 统一检查 PR 描述、commit 数量和 Commit Message。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
+| `.github/workflows/pr-check.yml` | 统一检查 PR 描述、commit 数量、Commit Message，并按集中配置检查迁移文件。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/sync-pr-template.yml` | PR 模板进入 `main` 后，自动发现调用公共 PR 检查的仓库，为模板差异创建同步 PR，并由组织自动化令牌绕过门禁合并。 | 自动发现 |
 | `.github/workflows/stale-pr.yml` | 统一标记和关闭不活跃 PR，并维护 `stale` / `no-stale` 标签说明。 | `Chat`、`open-platform`、`UI`、`UniAuth` |
 | `.github/workflows/golangci-lint.yml` | 统一 Go 静态检查，支持 LFS、CGO、子目录模块和 glob 变更过滤。 | `Chat`、`open-platform`、`UniAuth` |
@@ -26,6 +26,24 @@
 | `.github/workflows/gitops-yq-script-bump.yml` | 统一 GitOps 仓库 checkout、yq 安装、脚本式多文件更新、提交和重试推送流程。适用于一次发布需要同时更新 values、Chart.yaml 等多个 YAML 文件的仓库。 | `Docs` |
 
 业务仓库只保留触发入口、仓库路径、数据库类型、测试命令等必要参数；公共检查逻辑、工具版本和中文提示文本集中在这里维护。发布、部署、制品构建的通用机械步骤可以复用本仓库工作流；具体部署仓库、环境路径、集群字段、对象存储端点、Secret 名称映射和内部架构说明仍由各业务仓库自行维护。
+
+## 普通 PR 的迁移文件门禁
+
+`actions/check-migration-files` 从共享仓库的 `actions/ci-policy/policy.json` 读取
+`migration-files` 配置，检查六位连续编号、up/down 配对、并发索引单语句，以及基线已有 SQL 不可删除、改名或改写。
+Chat、UniAuth、open-platform 接在原有 PR 规范检查中；豆包语音服务接在 Go Test 的范围
+判断之前，即使只修改 SQL 或 PR 仍是草稿也执行文件门禁。其他仓库不新增这项检查。
+候选分支不能通过修改自己的校验脚本绕过规则；真实数据库 up/down 和 SQL 行为仍由数据库
+回归及部署前验证负责。RAG 使用 Alembic 版本链，不适用六位 SQL 文件约定。
+
+豆包语音 Go Test 同时准备独立 PostgreSQL 临时库并设置 `DOUBAO_MIGRATION_TEST_DSN`，
+使已有迁移往返测试实际执行；SQL 目录纳入集中测试范围。普通 PR 门禁不能依赖开发服部署
+标签，DevPortal 的“未触发开发服部署”绿色状态也不代表迁移文件已检查。
+
+Docs CMS 的类型检查与现有 Node 测试、RAG 的单元/契约测试及 Alembic 单 head 校验
+由业务仓库的普通 PR 入口调用共享执行器；Gateway 的 Go 测试同样使用共享执行器。
+新增调用方时，同时核对 `ready_for_review` 与外层 `on.paths`，共享范围配置无法补救
+未被 GitHub 触发的工作流。doc-intelligence 的测试范围包含测试工作流与覆盖率配置。
 
 ## PR 模板自动同步
 

@@ -26,6 +26,7 @@ jobs:
           python3 -m unittest discover -s actions/ci-e2e
           python3 -m unittest discover -s actions/frontend-runtime
           python3 -m unittest discover -s actions/ci-policy
+          python3 -m unittest discover -s actions/check-migration-files
           python3 -m unittest discover -s actions/ci-resources
           python3 -m unittest discover -s actions/go-test-hosted
           python3 -m unittest discover -s actions/go-test-fallback
