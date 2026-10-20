@@ -187,7 +187,7 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 5
     concurrency:
-      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
+      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-aggregate
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: 汇总 Go Test 结果
@@ -198,6 +198,10 @@ jobs:
           SHARD_RESULT: ${{ needs.shard.result }}
         run: |
           set -euo pipefail
+          if [ "$PLAN_RESULT" = 'cancelled' ] || [ "$SHARD_RESULT" = 'cancelled' ]; then
+            echo "本运行已被更新的运行取代，结论由新运行给出。"
+            exit 0
+          fi
           if [ "$PLAN_RESULT" != 'success' ]; then
             echo "::error::范围与分片计划未成功：$PLAN_RESULT"
             exit 1
