@@ -140,7 +140,8 @@ DevPortal Go Test 使用每任务独立、有容量限制的临时缓存，避�
 Cluster 的 `Helm Check` 调用 `helm-check.yml`，Helm/Python 版本、检查命令和路径范围由
 `actions/ci-policy/policy.json` 的 `CUHKSZ-ITSO-Dev/Cluster` 配置统一维护。Cluster 保留
 Chart、环境契约检查脚本、测试和锁定的 `requirements-ci.txt`，公共流程不访问集群或发布制品。
-PR 入口始终创建检查，范围判断在 job 内执行；覆盖全部 `scripts/**`，避免新增脚本漏检。
+PR 入口始终创建检查，范围判断在 job 内执行；保守覆盖所有顶层目录的改动，避免新 Chart 的模板、配置或脚本漏检。
+检查枚举候选代码实际存在的顶层 `*/Chart.yaml`；平台三环境与交付五 scope 保留原矩阵，其他 Chart 逐一执行 `helm lint`，不预先要求尚未合并的 Chart。
 草稿 PR 仍检查，手动运行执行全量；仅取消同一 PR 的过期检查，main push 不取消。
 执行前固定 Ubuntu 24.04、Helm 和 Python、缓存 pip 下载，设置 20 分钟超时并记录 runner 资源消耗。
 遥测和三环境探针由发布契约脚本复用已有渲染验证，Python 语法检查覆盖整个 scripts 目录。
