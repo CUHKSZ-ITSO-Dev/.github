@@ -105,7 +105,7 @@ UI 的三个浏览器在 PR 上按下文的已核验映射选择用例，其他�
 ### 检查范围与等待时间
 
 - Chat、UniAuth、open-platform、UI 仅修改业务 CI 调用入口时，不再启动 Go 测试、lint、前端依赖安装或迁移数据库；PR 规范检查通过 actionlint 验证改动的工作流。检查名称保持不变，无相关改动的检查成功返回，避免 required check 一直等待。集中配置或共享执行器修改在本仓库运行配置、路径选择、提交规范、磁盘策略测试和 actionlint；修改实际测试行为后还须按受影响仓库验证完整测试。
-- Go 测试关注源码、模块依赖、工作区、迁移 SQL、测试夹具及仓库使用的嵌入资源；linter 配置仅触发 lint。UniAuth lint 不再因普通后端文档变化而运行。开启 `test-selection` 的仓库按 `go list` 依赖闭包（含 TestImports / XTestImports / go:embed / testdata 归属）选择受影响包执行测试；依赖、工作区、vendor、未映射文件、证据不足或非 PR 事件一律回退全量，不按单个修改文件猜测依赖范围。
+- Go 测试关注源码、模块依赖、工作区、迁移 SQL、测试夹具及仓库使用的嵌入资源；linter 配置仅触发 lint。UniAuth lint 不再因普通后端文档变化而运行。开启 `test-selection` 的仓库按 `go list` 依赖闭包（含 TestImports / XTestImports / go:embed / testdata 归属）选择受影响包执行测试；无法归属包目录的变更文件先在全部 Go 源码中查找带引号的路径字面量（`os.ReadFile` 等运行时读取），命中后以引用方包为种子；仍无归属的嵌套模块文件和 `selection-ignored-paths` 列出的无证据路径（文档、CI 配置等集中配置项）跳过，其余未映射文件一律回退全量。依赖、工作区、vendor、证据不足或非 PR 事件同样回退全量，不按单个修改文件猜测依赖范围。
 - PR 规范检查和本仓库配置检查使用 `ubuntu-slim`。提交消息沿用 commitlint 19 的 conventional 规则及仓库 `commitlint.config.mjs`，使用锁定的 npm 依赖缓存，去掉 Docker 镜像下载、完整 Git 历史和短任务资源采样。提交数量仍限制在 1–30 个，描述小节要求不变。
 - Go 测试在 PR 无相关改动时不 checkout 业务代码；执行测试时使用浅 checkout。Go 缓存按工具链版本区分，编译缓存允许同键前缀回退以覆盖依赖升级场景，模块下载缓存按依赖锁定文件为键。数据库镜像在 checkout 后后台预拉取，就绪等待隐藏在 Go 安装与编译期间。Python 检查开启 uv 缓存。前端、Python 与未纳管仓库原有自定义命令和路径参数保留；Redis/RabbitMQ 集成测试继续需要完整 runner 和服务，不能改用 slim。
 - 各检查只取消同一 PR、同一调用工作流和模块的过期任务，前端检查另按检查配置（旧入口按 Playwright 浏览器集合）区分，避免并行引擎互相取消；push 不自动取消。Go Test 计划与分片按各自并发组取消，聚合 job 使用独立并发组；被取代运行的聚合不再写回失败结论，结果以最新运行为准。GitHub 托管 runner 的排队仍由 GitHub 分配；`ubuntu-slim` 同样受账户并发限制，轻量化不能保证零等待。

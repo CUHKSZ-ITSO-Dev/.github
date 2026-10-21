@@ -47,6 +47,34 @@ class SelectTargetsTest(unittest.TestCase):
                      'docs/guide.md', 'unknown/x.go'):
             self.assertIsNone(self.select([file])[0], file)
 
+    def test_ignored_paths_skip_unmapped_files(self):
+        targets, reason = select_targets(
+            ['util/helper.go', 'docs/guide.md'], ROWS,
+            ignored_patterns=('**/docs/**',))
+        self.assertIn('example/util', targets)
+        self.assertIn('忽略', reason)
+        self.assertIsNone(select_targets(['docs/guide.md'], ROWS,
+                                         ignored_patterns=('**/docs/**',))[0])
+
+    def test_literal_reference_maps_runtime_dependency(self):
+        texts = {'example/migrate': 'data, _ := os.ReadFile("../../../../scripts/fix.sql")'}
+        targets, _ = select_targets(['scripts/fix.sql'], ROWS, texts=texts)
+        self.assertIn('example/migrate', targets)
+        targets, _ = select_targets(['mod/scripts/fix.sql'], ROWS,
+                                    module_root='mod', texts=texts)
+        self.assertIn('example/migrate', targets)
+
+    def test_nested_module_file_is_skipped(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as tmp:
+            nested = os.path.join(tmp, 'mod', 'tools', 'gen')
+            os.makedirs(nested)
+            open(os.path.join(nested, 'go.mod'), 'w').close()
+            targets, _ = select_targets(
+                ['util/helper.go', 'mod/tools/gen/x.go'], ROWS,
+                module_root='mod', workspace=tmp, texts={})
+            self.assertIn('example/util', targets)
+
     def test_root_package_owns_root_file(self):
         rows = [{'path': 'example/root', 'dir': '.', 'imports': set(),
                  'embeds': [], 'tests': 1}]

@@ -135,6 +135,9 @@ outputs:
   schema-contract:
     description: schema-contract
     value: ${{ steps.resolve.outputs.schema-contract }}
+  selection-ignored-paths:
+    description: 定向测试允许忽略的无证据变更路径（逐行 glob）
+    value: ${{ steps.resolve.outputs.selection-ignored-paths }}
   skip-draft-pr:
     description: skip-draft-pr
     value: ${{ steps.resolve.outputs.skip-draft-pr }}

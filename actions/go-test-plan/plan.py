@@ -8,7 +8,8 @@ import subprocess
 LIST = ('{{.ImportPath}}|{{.Dir}}|{{join .Imports ","}}|{{join .TestImports ","}}|'
         '{{join .XTestImports ","}}|{{join .EmbedPatterns ","}}|'
         '{{join .TestEmbedPatterns ","}}|{{join .XTestEmbedPatterns ","}}|'
-        '{{join .TestGoFiles ","}}|{{join .XTestGoFiles ","}}')
+        '{{join .TestGoFiles ","}}|{{join .XTestGoFiles ","}}|'
+        '{{join .GoFiles ","}}|{{join .CgoFiles ","}}')
 MODULE_FILES = {'go.mod', 'go.sum', 'go.work', 'go.work.sum'}
 
 
@@ -27,7 +28,7 @@ def wants_listing(policy):
 def parse_rows(text):
     rows = []
     for line in text.splitlines():
-        fields = (line.split('|') + [''] * 10)[:10]
+        fields = (line.split('|') + [''] * 12)[:12]
         if not fields[0]:
             continue
         rows.append({
@@ -36,6 +37,7 @@ def parse_rows(text):
             'imports': {name for field in fields[2:5] for name in field.split(',') if name},
             'embeds': [name for field in fields[5:8] for name in field.split(',') if name],
             'tests': sum(bool(name) for field in fields[8:10] for name in field.split(',')),
+            'files': [name for field in fields[8:12] for name in field.split(',') if name],
         })
     return rows
 
@@ -68,14 +70,60 @@ def embed_owner(file, rows):
     return None
 
 
-def select_targets(files, rows):
+def source_index(rows, workspace):
+    texts = {}
+    for row in rows:
+        chunks = []
+        for name in row.get('files', []):
+            try:
+                chunks.append((Path(workspace) / row['dir'] / name).read_text(errors='replace'))
+            except OSError:
+                pass
+        texts[row['path']] = '\n'.join(chunks)
+    return texts
+
+
+def literal_owners(file, texts, module_root=''):
+    """Sources quoting the changed path own it as a runtime dependency."""
+    forms = [file]
+    prefix = '' if module_root in ('', '.') else module_root.rstrip('/') + '/'
+    if prefix and file.startswith(prefix):
+        forms.append(file[len(prefix):])
+    needles = tuple(needle for form in forms for needle in
+                    ('"' + form + '"', "'" + form + "'", '`' + form + '`',
+                     '/' + form + '"', '/' + form + "'", '/' + form + '`'))
+    return {path for path, text in texts.items()
+            if any(needle in text for needle in needles)}
+
+
+def nested_module(file, module_root, workspace):
+    """Files under a nested module never join the parent module's ./... sweep."""
+    prefix = '' if module_root in ('', '.') else module_root.rstrip('/') + '/'
+    if not file.startswith(prefix):
+        return False
+    stop = PurePosixPath(module_root or '.')
+    for directory in [file and PurePosixPath(file).parent, *PurePosixPath(file).parent.parents]:
+        if directory == stop or directory == PurePosixPath('.'):
+            break
+        if (Path(workspace) / directory / 'go.mod').is_file():
+            return True
+    return False
+
+
+def ignored(file, patterns):
+    return any(fnmatchcase(file, pattern)
+               or (pattern.startswith('**/') and fnmatchcase(file, pattern[3:]))
+               for pattern in patterns)
+
+
+def select_targets(files, rows, module_root='', ignored_patterns=(), workspace=None, texts=None):
     """Affected import paths, or (None, reason) when coverage cannot be proven."""
     by_dir = {row['dir']: row['path'] for row in rows}
     imported_by = {}
     for row in rows:
         for dep in row['imports']:
             imported_by.setdefault(dep, set()).add(row['path'])
-    seeds, test_only = set(), set()
+    seeds, test_only, skipped = set(), set(), 0
     for file in files:
         parts = PurePosixPath(file).parts
         if not parts or parts[-1] in MODULE_FILES or 'vendor' in parts:
@@ -91,12 +139,25 @@ def select_targets(files, rows):
         embedded = embed_owner(file, rows)
         if embedded:
             owners.add(embedded)
-        if not owners:
-            return None, f'未映射变更 {file}：全量'
-        if file.endswith('_test.go') and not embedded:
-            test_only |= owners
-        else:
-            seeds |= owners
+        if owners:
+            if file.endswith('_test.go') and not embedded:
+                test_only |= owners
+            else:
+                seeds |= owners
+            continue
+        if texts is None:
+            texts = source_index(rows, workspace or '.')
+        literals = literal_owners(file, texts, module_root)
+        if literals:
+            seeds |= literals
+            continue
+        if workspace and nested_module(file, module_root, workspace):
+            skipped += 1
+            continue
+        if ignored(file, ignored_patterns):
+            skipped += 1
+            continue
+        return None, f'未映射变更 {file}：全量'
     affected = seeds | test_only
     queue = list(seeds)
     while queue:
@@ -107,7 +168,8 @@ def select_targets(files, rows):
                 queue.append(parent)
     if not affected:
         return None, '受影响包为空：全量'
-    return affected, f'定向 {len(affected)}/{len(rows)} 个包'
+    suffix = f'，忽略 {skipped} 个无证据文件' if skipped else ''
+    return affected, f'定向 {len(affected)}/{len(rows)} 个包{suffix}'
 
 
 def shard_groups(rows, targets, count):
@@ -121,7 +183,7 @@ def shard_groups(rows, targets, count):
     return [group for group in groups if group]
 
 
-def plan(policy, event_name, reliable, files, rows):
+def plan(policy, event_name, reliable, files, rows, workspace=None):
     """Return (matrix, mode, reason); rows=None means the module was not listed."""
     try:
         shards = int(str(policy.get('test-shards') or '1'))
@@ -140,7 +202,11 @@ def plan(policy, event_name, reliable, files, rows):
         elif not isinstance(files, list) or any(not isinstance(f, str) for f in files) or not files:
             reason = '变更列表无效或为空：全量'
         else:
-            selected, reason = select_targets(files, rows)
+            patterns = [line for line in
+                        str(policy.get('selection-ignored-paths') or '').splitlines() if line]
+            selected, reason = select_targets(
+                files, rows, policy.get('working-directory') or '.',
+                patterns, workspace)
             if selected is not None:
                 targets, mode = selected, 'affected'
     if mode == 'all' and shards <= 1:
@@ -153,9 +219,9 @@ def plan(policy, event_name, reliable, files, rows):
 
 def main():
     policy = json.loads(os.environ['POLICY_JSON'])
+    workspace = os.environ['GITHUB_WORKSPACE']
     rows = None
     if wants_listing(policy):
-        workspace = os.environ['GITHUB_WORKSPACE']
         directory = Path(workspace) / (policy.get('working-directory') or '.')
         listed = package_rows(directory)
         if listed:
@@ -165,7 +231,7 @@ def main():
     except ValueError:
         files = None
     matrix, mode, reason = plan(policy, os.environ['GITHUB_EVENT_NAME'],
-                                os.environ.get('RELIABLE', ''), files, rows)
+                                os.environ.get('RELIABLE', ''), files, rows, workspace)
     if not wants_listing(policy):
         reason = '未启用定向或分片：全量'
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
