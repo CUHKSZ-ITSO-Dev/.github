@@ -102,7 +102,9 @@ def main():
     with ThreadPoolExecutor(max_workers=len(groups)) as pool:
         futures = [pool.submit(run_group, i + 1, packages, workspace, workdir,
                                prepare, flags, temp)
-                   for i, packages in enumerate(groups)]
+                   for i, packages in enumerate(
+                       ' '.join(group) if isinstance(group, list) else group
+                       for group in groups)]
         results = [future.result() for future in futures]
     failed = [(index, log) for index, log, code in results if code]
     for index, log in failed:

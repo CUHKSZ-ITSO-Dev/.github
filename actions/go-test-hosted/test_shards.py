@@ -43,6 +43,19 @@ class ParseEnvFileTests(unittest.TestCase):
             self.assertEqual(shards.parse_env_file(env), {'OK': '1'})
 
 
+class MainTests(unittest.TestCase):
+    def test_groups_json_accepts_lists_of_package_lists(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = {'PARALLEL_GROUPS': '[["a","b"],["c"]]', 'GITHUB_WORKSPACE': root,
+                   'RUNNER_TEMP': root, 'TEST_FLAGS': '', 'PREPARE_COMMAND': '',
+                   'POLICY_WORKING_DIRECTORY': '.'}
+            calls = []
+            with patch.dict(os.environ, env), \
+                 patch.object(shards, 'run_group', side_effect=lambda *a, **k: calls.append(a) or (a[0], None, 0)):
+                self.assertEqual(shards.main(), 0)
+            self.assertEqual([call[1] for call in calls], ['a b', 'c'])
+
+
 @unittest.skipUnless(shutil.which('git'), 'git 不可用')
 class RunGroupTests(unittest.TestCase):
     def test_prepare_env_and_group_index_reach_the_test_command(self):
