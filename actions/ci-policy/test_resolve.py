@@ -79,7 +79,7 @@ class PolicyTest(unittest.TestCase):
     def test_new_pr_database_regressions_export_the_prepared_database(self):
         for repo, variables, database in [
             ('UniAuth', ['PSQL_WATCHER_TEST_DATABASE_URL', 'DASHBOARD_TEST_DATABASE_URL'],
-             'uniauth_go_test'),
+             r'\$\{DB\}'),
             ('open-platform', ['BINDINGS_TEST_DATABASE_URL'], 'open_platform_go_test'),
         ]:
             result = resolve(f'CUHKSZ-ITSO-Dev/{repo}', 'go-test',

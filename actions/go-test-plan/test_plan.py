@@ -142,6 +142,25 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(mode, 'all')
         self.assertEqual(len(matrix['include']), 2)
 
+    def test_single_runner_merges_groups_into_one_labeled_entry(self):
+        import json
+        policy = dict(self.POLICY, **{'single-runner': 'true'})
+        matrix, mode, _ = plan(policy, 'pull_request', 'true',
+                               ['util/helper.go'], ROWS)
+        self.assertEqual(mode, 'affected')
+        entry, = matrix['include']
+        self.assertEqual(entry['label'], '全部')
+        groups = json.loads(entry['groups'])
+        self.assertGreater(len(groups), 1)
+        merged = sorted(pkg for group in groups for pkg in group)
+        self.assertEqual(merged, sorted(entry['packages'].split()))
+
+    def test_single_runner_bypassed_entry_is_labeled(self):
+        matrix, mode, _ = plan({'single-runner': 'true'}, 'pull_request', 'true',
+                               ['util/helper.go'], None)
+        self.assertEqual(mode, 'bypassed')
+        self.assertEqual(matrix['include'][0]['label'], '全部')
+
 
 if __name__ == '__main__':
     unittest.main()
