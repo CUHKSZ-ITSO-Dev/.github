@@ -1,6 +1,7 @@
 import json
 from fnmatch import fnmatchcase
 from pathlib import Path
+import re
 import unittest
 from resolve import resolve
 
@@ -41,6 +42,14 @@ class PolicyTest(unittest.TestCase):
     def test_repository_case_cannot_bypass_policy(self):
         result = resolve('cuhksz-itso-dev/chat', 'go-test', {'test-flags': ''}, self.policy)
         self.assertIn('-race', result['test-flags'])
+
+    def test_every_default_policy_key_reaches_the_workflow(self):
+        text = Path(__file__).with_name('action.yml').read_text()
+        block = text.split('outputs:', 1)[1].split('runs:', 1)[0]
+        declared = set(re.findall(r'^  ([a-z0-9-]+):', block, re.M))
+        for kind, config in self.policy['defaults'].items():
+            missing = set(config) - declared
+            self.assertFalse(missing, f'{kind} 策略键未声明为 action 输出：{missing}')
 
     def test_database_integration_is_preserved(self):
         result = resolve('CUHKSZ-ITSO-Dev/UniAuth', 'go-test', {}, self.policy)

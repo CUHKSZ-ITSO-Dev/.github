@@ -141,6 +141,9 @@ outputs:
   skip-draft-pr:
     description: skip-draft-pr
     value: ${{ steps.resolve.outputs.skip-draft-pr }}
+  single-runner:
+    description: 全部测试分片合并为单个 job 内并行执行
+    value: ${{ steps.resolve.outputs.single-runner }}
   sqlserver-image:
     description: sqlserver-image
     value: ${{ steps.resolve.outputs.sqlserver-image }}
