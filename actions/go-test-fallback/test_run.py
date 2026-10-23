@@ -15,6 +15,24 @@ class FallbackTests(unittest.TestCase):
             self.assertEqual(fallback.main(), 1)
             request.assert_not_called()
 
+    def test_failure_summary_names_tests_without_fallback(self):
+        import contextlib, io, tempfile
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / 'go-test-failure-summary').write_text('TestAlpha、TestBeta\n')
+            env = dict(RUNNER_TEMP=root, FALLBACK_REPOSITORY='CUHKSZ-ITSO-Dev/UniAuth')
+            out = io.StringIO()
+            with patch.dict(os.environ, env), patch.object(fallback, 'disk_exhausted', return_value=False), contextlib.redirect_stdout(out):
+                self.assertEqual(fallback.main(), 1)
+            self.assertIn('TestAlpha', out.getvalue())
+
+    def test_disk_exhaustion_without_allowlist_reports_missing_fallback(self):
+        import contextlib, io
+        env = dict(RUNNER_TEMP='/tmp', FALLBACK_REPOSITORY='example/other')
+        out = io.StringIO()
+        with patch.dict(os.environ, env), patch.object(fallback, 'disk_exhausted', return_value=True), contextlib.redirect_stdout(out):
+            self.assertEqual(fallback.main(), 1)
+        self.assertIn('未启用 DevPortal 回退', out.getvalue())
+
     def test_waits_for_real_result_using_stable_identity(self):
         env = dict(FALLBACK_REPOSITORY='CUHKSZ-ITSO-Dev/Chat', FALLBACK_COMMIT='a' * 40,
                    RUNNER_TEMP='/tmp', FALLBACK_RUN_ID='100', FALLBACK_RUN_ATTEMPT='2')

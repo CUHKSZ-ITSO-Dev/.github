@@ -26,9 +26,24 @@ def request_result(payload):
         return json.load(response)
 
 
+def failure_summary():
+    temp = os.environ.get('RUNNER_TEMP')
+    if not temp:
+        return ''
+    try:
+        return (Path(temp) / 'go-test-failure-summary').read_text().strip()
+    except OSError:
+        return ''
+
+
 def main():
-    if not disk_exhausted() or os.environ['FALLBACK_REPOSITORY'] not in REPOSITORIES:
-        print('::error::原 Go Test 失败；未确认磁盘不足，不启动回退。')
+    if not disk_exhausted():
+        names = failure_summary()
+        detail = f'：{names}' if names else '，失败详情见上方测试输出'
+        print(f'::error::Go Test 未通过{detail}；失败与磁盘无关，不启动回退。')
+        return 1
+    if os.environ['FALLBACK_REPOSITORY'] not in REPOSITORIES:
+        print('::error::GitHub runner 磁盘不足，但该仓库未启用 DevPortal 回退。')
         return 1
     (Path(os.environ['RUNNER_TEMP']) / 'go-test-handoff-reserve').unlink(missing_ok=True)
     payload = dict(repository=os.environ['FALLBACK_REPOSITORY'], commit=os.environ['FALLBACK_COMMIT'],

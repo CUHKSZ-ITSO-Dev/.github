@@ -190,8 +190,10 @@ def plan(policy, event_name, reliable, files, rows, workspace=None):
     except ValueError:
         shards = 1
     if rows is None:
-        return ({'include': [{'index': 1, 'packages': './...'}]},
-                'bypassed', '包列表不可用：全量')
+        entry = {'index': 1, 'packages': './...'}
+        if truthy(policy.get('single-runner')):
+            entry['label'] = '全部'
+        return ({'include': [entry]}, 'bypassed', '包列表不可用：全量')
     targets = {row['path'] for row in rows}
     mode, reason = 'all', f'全部分片 {len(rows)} 个包'
     if truthy(policy.get('test-selection')):
@@ -210,8 +212,17 @@ def plan(policy, event_name, reliable, files, rows, workspace=None):
             if selected is not None:
                 targets, mode = selected, 'affected'
     if mode == 'all' and shards <= 1:
-        return {'include': [{'index': 1, 'packages': './...'}]}, mode, reason
+        entry = {'index': 1, 'packages': './...'}
+        if truthy(policy.get('single-runner')):
+            entry['label'] = '全部'
+        return {'include': [entry]}, mode, reason
     groups = shard_groups(rows, targets, shards)
+    if truthy(policy.get('single-runner')):
+        # 单 runner 模式：一个 job 内并行执行全部分片组，检查列表只剩一条执行记录。
+        merged = ' '.join(pkg for group in groups for pkg in group) or './...'
+        include = [{'index': 1, 'label': '全部', 'packages': merged,
+                    'groups': json.dumps(groups, ensure_ascii=True)}]
+        return {'include': include}, mode, reason
     include = [{'index': index + 1, 'packages': ' '.join(group)}
                for index, group in enumerate(groups)]
     return {'include': include}, mode, reason
@@ -239,8 +250,10 @@ def main():
         output.write('selection=' + mode + '\n')
     print(reason)
     with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-        legs = ', '.join(f"分片 {entry['index']}（{len(entry['packages'].split())} 包）"
-                         for entry in matrix['include'])
+        legs = ', '.join(
+            '{}（{} 包）'.format(entry.get('label') or '分片 ' + str(entry['index']),
+                                len(entry['packages'].split()))
+            for entry in matrix['include'])
         summary.write(f'### Go Test 执行计划\n\n{reason}；{legs}。\n\n')
 
 

@@ -29,6 +29,22 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual(capture.capture('echo "test case: No space left on device"'), 0)
             self.assertFalse(capture.marker().exists())
 
+    def test_ordinary_failure_records_failed_test_names(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, RUNNER_TEMP=root):
+            self.assertEqual(capture.capture(
+                "echo '--- FAIL: TestAlpha (0.1s)'; echo '--- FAIL: TestBeta'; "
+                "printf 'FAIL\texample/pkg\t1.2s\n'; exit 1"), 1)
+            self.assertFalse(capture.marker().exists())
+            self.assertEqual(capture.summary_marker().read_text().strip(),
+                             'TestAlpha、TestBeta、example/pkg')
+
+    def test_disk_failure_does_not_record_test_summary(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, RUNNER_TEMP=root):
+            self.assertEqual(capture.capture(
+                "echo '--- FAIL: TestAlpha'; echo 'no space left on device'; exit 1"), 1)
+            self.assertTrue(capture.marker().exists())
+            self.assertFalse(capture.summary_marker().exists())
+
     def test_preflight_detects_low_space_only_for_supported_fallback(self):
         from collections import namedtuple
         usage = namedtuple('Usage', 'total used free')

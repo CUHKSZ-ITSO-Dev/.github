@@ -7,10 +7,16 @@ import subprocess
 import sys
 
 DISK_ERROR = re.compile(r'no space left on device|disk quota exceeded|ENOSPC', re.I)
+TEST_FAILURE = re.compile(r'--- FAIL:\s*(\S+)')
+PACKAGE_FAILURE = re.compile(r'^FAIL\s+(\S+)')
 
 
 def marker():
     return Path(os.environ['RUNNER_TEMP']) / 'go-test-disk-exhausted'
+
+
+def summary_marker():
+    return Path(os.environ['RUNNER_TEMP']) / 'go-test-failure-summary'
 
 
 def record_disk_failure():
@@ -20,18 +26,33 @@ def record_disk_failure():
     marker().write_text('disk-exhausted\n')
 
 
+def record_failure_summary(names):
+    if names:
+        summary_marker().write_text('、'.join(names) + '\n')
+
+
 def capture(command):
     process = subprocess.Popen(['bash', '-e', '-o', 'pipefail', '-c', command],
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     disk_failure = False
+    tests, packages = [], []
     for line in iter(process.stdout.readline, b''):
         sys.stdout.buffer.write(line)
         sys.stdout.buffer.flush()
-        disk_failure |= bool(DISK_ERROR.search(line.decode('utf-8', errors='replace')))
+        text = line.decode('utf-8', errors='replace')
+        disk_failure |= bool(DISK_ERROR.search(text))
+        found = TEST_FAILURE.search(text)
+        if found and found.group(1) not in tests:
+            tests.append(found.group(1))
+        found = PACKAGE_FAILURE.match(text)
+        if found and found.group(1) not in packages:
+            packages.append(found.group(1))
     process.stdout.close()
     code = process.wait()
     if code and disk_failure:
         record_disk_failure()
+    elif code:
+        record_failure_summary((tests + [name for name in packages if name not in tests])[:8])
     return code
 
 

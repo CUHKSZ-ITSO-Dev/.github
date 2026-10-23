@@ -36,7 +36,7 @@
     "name": "Go Test",
     "jobs": {
       "plan": "Go Test 计划",
-      "shard": "Go Test 分片 ${{ matrix.index }}",
+      "shard": "Go Test ${{ matrix.label || format('分片 {0}', matrix.index) }}",
       "test": "Go Test"
     }
   },

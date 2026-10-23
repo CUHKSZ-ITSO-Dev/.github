@@ -12,6 +12,10 @@ inputs:
     required: false
     default: ''
     description: 分片编译缓存键后缀，避免多分片互相覆盖
+  parallel-groups:
+    required: false
+    default: ''
+    description: 单 runner 分片组 JSON；非空时在本 job 内并行执行各组，prepare-command 逐组隔离运行
 runs:
   using: composite
   steps:
@@ -264,7 +268,7 @@ runs:
       shell: bash
       run: python3 "$GITHUB_ACTION_PATH/capture.py"
     - name: 准备测试配置
-      if: fromJSON(inputs.policy-json).prepare-command != ''
+      if: fromJSON(inputs.policy-json).prepare-command != '' && inputs.parallel-groups == ''
       working-directory: ${{ fromJSON(inputs.policy-json).working-directory }}
       env:
         CAPTURE_COMMAND: |
@@ -278,10 +282,17 @@ runs:
         PGPASSWORD: postgres
         TEST_FLAGS: ${{ fromJSON(inputs.policy-json).test-flags }}
         TEST_PACKAGES: ${{ inputs.test-packages }}
+        PARALLEL_GROUPS: ${{ inputs.parallel-groups }}
+        PREPARE_COMMAND: ${{ fromJSON(inputs.policy-json).prepare-command }}
+        POLICY_WORKING_DIRECTORY: ${{ fromJSON(inputs.policy-json).working-directory }}
         CAPTURE_COMMAND: |
           set -euo pipefail
-          # shellcheck disable=SC2086 # test-flags 与 test-packages 是受控输入，需要拆分为 Go 参数。
-          go test ${TEST_FLAGS} ${TEST_PACKAGES}
+          if [ -n "$PARALLEL_GROUPS" ]; then
+            python3 "$GITHUB_ACTION_PATH/shards.py"
+          else
+            # shellcheck disable=SC2086 # test-flags 与 test-packages 是受控输入，需要拆分为 Go 参数。
+            go test ${TEST_FLAGS} ${TEST_PACKAGES}
+          fi
 
       shell: bash
       run: python3 "$GITHUB_ACTION_PATH/capture.py"
