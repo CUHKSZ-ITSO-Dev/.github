@@ -165,6 +165,18 @@
         "cache-dependency-path": "uniauth-gf/go.sum",
         "changed-paths": "uniauth-gf/**/*.go\nuniauth-gf/go.mod\nuniauth-gf/go.sum\nuniauth-gf/.golangci.yml\nuniauth-gf/.golangci.yaml\nuniauth-gf/manifest/sql/postgres/**\nuniauth-gf/resource/**\ngo.work\ngo.work.sum\n"
       },
+      "migration-check": {
+        "database-kind": "postgres",
+        "database-name": "uniauth_migration_check",
+        "working-directory": "uniauth-gf",
+        "migration-dir": "manifest/sql/postgres",
+        "migration-path-pattern": "^(uniauth-gf/manifest/sql/postgres/|uniauth-gf/internal/service/migration/|uniauth-gf/cmd/migrate/|uniauth-gf/main\\.go$|uniauth-gf/go\\.mod$|uniauth-gf/go\\.sum$|scripts/check_migrations\\.sh$)",
+        "migration-tags": "postgres",
+        "go-version-file": "uniauth-gf/go.mod",
+        "go-cache-dependency-path": "uniauth-gf/go.sum",
+        "app-database-name": "uniauth_migration_app_check",
+        "binary-check-command": "cat > manifest/config/config.yaml <<'YAML'\nserver:\n  port: 8004\nlogger:\n  level: \"debug\"\n  stdout: true\ndatabase:\n  default:\n    link: \"pgsql:postgres:postgres@tcp(localhost:5432)/uniauth_migration_app_check\"\n    timezone: \"Asia/Shanghai\"\n    createdAt: \"created_at\"\n    updatedAt: \"updated_at\"\n    debug: false\nYAML\ngo run ./cmd/migrate version\ngo run ./cmd/migrate status\ngo run ./cmd/migrate up\ngo run ./cmd/migrate status\n"
+      },
       "migration-files": {
         "directory": "uniauth-gf/manifest/sql/postgres",
         "entry": "pr-check"
