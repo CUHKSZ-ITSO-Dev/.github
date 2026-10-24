@@ -215,6 +215,30 @@ jobs:
             echo "has_migration_changes=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: 检查新增迁移版本与目标分支最新提交冲突
+        if: steps.detect.outputs.has_migration_changes == 'true' && github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+
+          # 目标分支可能在 PR 分叉后合入了同号迁移（PR 未同步时旧绿勾不会自动失效），
+          # 这里显式对比 origin/<base> 最新 tip，撞号在合并前直接拦截。
+          base_ref="origin/${GITHUB_BASE_REF}"
+          conflicts=$(comm -12 \
+            <(git diff --no-renames --name-only --diff-filter=A "${base_ref}"...HEAD -- "${FULL_MIGRATION_DIR}/*.up.sql" |
+              sed -nE "s#^${FULL_MIGRATION_DIR}/([0-9]{6})_.*\\.up\\.sql\$#\\1#p" |
+              LC_ALL=C sort -u) \
+            <(git ls-tree -r --name-only "${base_ref}" -- "${FULL_MIGRATION_DIR}" |
+              sed -nE "s#^${FULL_MIGRATION_DIR}/([0-9]{6})_.*\\.up\\.sql\$#\\1#p" |
+              LC_ALL=C sort -u)) || true
+
+          if [ -n "$conflicts" ]; then
+            echo "::error::新增迁移版本与目标分支 ${GITHUB_BASE_REF} 最新提交上的迁移版本冲突：目标分支在 PR 分叉后合入了同号迁移，合并会导致 golang-migrate duplicate version。请将新增迁移顺延到更高编号并保持 up/down 配对。冲突版本："
+            printf '%s\n' "$conflicts"
+            exit 1
+          fi
+
+          echo "新增迁移版本与 ${GITHUB_BASE_REF} 最新提交无冲突。"
+
       - name: 拉取 Git LFS 文件
         if: steps.detect.outputs.has_migration_changes == 'true' && steps.policy.outputs.lfs-include != ''
         run: git lfs pull --include="${{ steps.policy.outputs.lfs-include }}"
@@ -236,6 +260,34 @@ jobs:
       - name: 检查迁移文件命名和编号
         if: steps.detect.outputs.has_migration_changes == 'true'
         run: ${{ steps.policy.outputs.check-migrations-command }}
+
+      - name: 检查迁移版本号不重复
+        if: steps.detect.outputs.has_migration_changes == 'true'
+        run: |
+          set -euo pipefail
+
+          # 部分仓库的编号检查脚本会对版本号 sort -u 去重，重复编号会被静默放过；
+          # 这里直接检查检出树（PR 场景为 merge ref，含目标分支内容）中同方向的重复版本号。
+          # 同一版本的 up/down 配对是正常的，不算重复。
+          duplicates=$(find "$FULL_MIGRATION_DIR" -maxdepth 1 -type f -name '*.sql' -print |
+            sed -E 's#.*/([0-9]{6})_.*\.(up|down)\.sql$#\1_\2#' |
+            sort |
+            uniq -d)
+
+          if [ -n "$duplicates" ]; then
+            echo "::error::迁移目录中存在重复版本号，golang-migrate 将拒绝加载。请顺延冲突迁移的编号并保持 up/down 配对。重复版本："
+            printf '%s\n' "$duplicates"
+            echo "涉及文件："
+            for version in $duplicates; do
+              dir_version="${version%%_*}"
+              direction="${version##*_}"
+              find "$FULL_MIGRATION_DIR" -maxdepth 1 -type f -name "${dir_version}_*.${direction}.sql" -print |
+                sed 's#.*/##'
+            done
+            exit 1
+          fi
+
+          echo "迁移版本号无重复。"
 
       - name: 检查迁移 SQL Git 属性
         if: steps.detect.outputs.has_migration_changes == 'true' && steps.policy.outputs.check-git-attrs == 'true'
