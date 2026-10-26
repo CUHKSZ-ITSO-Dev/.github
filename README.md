@@ -133,7 +133,7 @@ DevPortal Go Test 使用每任务独立、有容量限制的临时缓存，避�
 
 新机制不改已有 workflow/job 的名称和 ID，`workflow-identities.json` 及测试保护这些身份。跳过发生在 job/step 内，保留既有必需检查结果。Go Test 拆分为计划、分片与聚合 job：计划在单个 job 内完成路径过滤与包级分片计算，分片 job 按 matrix 并发执行且各自保留磁盘不足回退，聚合 job 沿用原 `Go Test` 名称汇总必需检查结果。
 
-仓库可把 `go-test` 的 `single-runner` 置为 true，将全部分片合并为一个 matrix 项（检查显示为「Go Test 全部」，检查列表由 N+2 条收敛为 3 条），由 `go-test-hosted/shards.py` 在同一 job 内并行执行各组：每组检出独立 `git worktree` 并以 `GO_TEST_GROUP_INDEX` 区分，prepare-command 逐组执行且其写入的 `$GITHUB_ENV` 仅作用于本组。需要数据库隔离的仓库应在 prepare-command 中按该变量派生库名（UniAuth 以 `_g<index>` 为后缀）；未派生且组间存在共享外部状态的仓库不得开启。使用 Git LFS 的仓库暂不适用，worktree 不携带 LFS 内容。非磁盘失败的回退步如实报告 `--- FAIL` 测试名而非笼统提示；磁盘不足但仓库未启用 DevPortal 回退时单独报错。公共仓库只能控制调用后的执行范围：业务入口若在 `on.paths` 中漏列文件，共享流程无法补启动该 workflow；doc-intelligence 的现有入口仍存在这一上游限制，需在业务仓库单独维护。Docker 的调用方若要缩小范围，也须按自己的 context 明确传参；本次不推测私有业务构建输入。
+仓库可把 `go-test` 的 `single-runner` 置为 true，将全部分片合并为一个 matrix 项（检查按实际范围显示为「Go Test 定向」或「Go Test 全量」，检查列表由 N+2 条收敛为 3 条），由 `go-test-hosted/shards.py` 在同一 job 内并行执行各组：每组检出独立 `git worktree` 并以 `GO_TEST_GROUP_INDEX` 区分，prepare-command 逐组执行且其写入的 `$GITHUB_ENV` 仅作用于本组。需要数据库隔离的仓库应在 prepare-command 中按该变量派生库名（UniAuth 以 `_g<index>` 为后缀）；未派生且组间存在共享外部状态的仓库不得开启。使用 Git LFS 的仓库暂不适用，worktree 不携带 LFS 内容。非磁盘失败的回退步如实报告 `--- FAIL` 测试名而非笼统提示；磁盘不足但仓库未启用 DevPortal 回退时单独报错。公共仓库只能控制调用后的执行范围：业务入口若在 `on.paths` 中漏列文件，共享流程无法补启动该 workflow；doc-intelligence 的现有入口仍存在这一上游限制，需在业务仓库单独维护。Docker 的调用方若要缩小范围，也须按自己的 context 明确传参；本次不推测私有业务构建输入。
 
 维护范围策略时运行 `ci-scope`、`ci-e2e`、`ci-policy`、`go-test-plan` 的测试以及现有配置检查和 actionlint，并回放真实 PR 文件列表与 Playwright `--list` 核对选择结果；改变运行时测试行为须补相关浏览器执行。所有范围判断和选择的用例写入 Actions summary，便于区分定向执行、完整回退和跳过原因。
 

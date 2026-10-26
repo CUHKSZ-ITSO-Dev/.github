@@ -42,6 +42,44 @@ class FallbackTests(unittest.TestCase):
                 self.assertEqual(request.call_args_list[0], request.call_args_list[1])
                 self.assertEqual(request.call_args.args[0]['commit'], 'a' * 40)
 
+    def test_transient_outage_recovers_and_succeeds(self):
+        import contextlib, io
+        env = dict(FALLBACK_REPOSITORY='CUHKSZ-ITSO-Dev/UniAuth', FALLBACK_COMMIT='a' * 40,
+                   RUNNER_TEMP='/tmp', FALLBACK_RUN_ID='100', FALLBACK_RUN_ATTEMPT='2')
+        monotonic = [0.0]
+        attempts = []
+
+        def request(_payload):
+            monotonic[0] += 120  # 每次尝试间隔 2 分钟，共 4 次失败仍未达 10 分钟容忍线
+            attempts.append(1)
+            if len(attempts) < 5:
+                raise fallback.URLError('temporary')
+            return dict(phase='Succeeded', message='result')
+
+        out = io.StringIO()
+        with patch.dict(os.environ, env), patch.object(fallback, 'disk_exhausted', return_value=True), \
+                patch.object(fallback.time, 'sleep'), patch.object(fallback.time, 'monotonic', lambda: monotonic[0]), \
+                patch.object(fallback, 'request_result', request), contextlib.redirect_stdout(out):
+            self.assertEqual(fallback.main(), 0)
+        self.assertEqual(len(attempts), 5)
+
+    def test_persistent_outage_gives_up_after_ten_minutes(self):
+        import contextlib, io
+        env = dict(FALLBACK_REPOSITORY='CUHKSZ-ITSO-Dev/UniAuth', FALLBACK_COMMIT='a' * 40,
+                   RUNNER_TEMP='/tmp', FALLBACK_RUN_ID='100', FALLBACK_RUN_ATTEMPT='2')
+        monotonic = [0.0]
+
+        def request(_payload):
+            monotonic[0] += 120
+            raise fallback.URLError('down')
+
+        out = io.StringIO()
+        with patch.dict(os.environ, env), patch.object(fallback, 'disk_exhausted', return_value=True), \
+                patch.object(fallback.time, 'sleep'), patch.object(fallback.time, 'monotonic', lambda: monotonic[0]), \
+                patch.object(fallback, 'request_result', request), contextlib.redirect_stdout(out):
+            self.assertEqual(fallback.main(), 1)
+        self.assertIn('连续 10 分钟不可达', out.getvalue())
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -148,6 +148,8 @@ jobs:
     if: needs.plan.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 110
+    outputs:
+      detail: ${{ steps.report.outputs.detail }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -178,10 +180,39 @@ jobs:
           cache-suffix: -shard-${{ matrix.index }}
 
       - name: 确认失败原因并按需回退 DevPortal
+        id: fallback
         if: steps.primary.outcome == 'failure' && !cancelled()
         uses: CUHKSZ-ITSO-Dev/.github/actions/go-test-fallback@main
         with:
           token: ${{ github.token }}
+
+      - name: 报告分片结果
+        id: report
+        if: failure()
+        env:
+          FALLBACK_OUTCOME: ${{ steps.fallback.outcome }}
+          RUNNER_TEMP_PATH: ${{ runner.temp }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          reason=''
+          if [ -f "$RUNNER_TEMP_PATH/go-test-infra-reason" ]; then
+            reason="$(cat "$RUNNER_TEMP_PATH/go-test-infra-reason")"
+          elif [ -f "$RUNNER_TEMP_PATH/go-test-failure-summary" ]; then
+            reason="失败用例/包：$(cat "$RUNNER_TEMP_PATH/go-test-failure-summary")"
+          fi
+          [ -z "$reason" ] && reason='失败详情见上方测试输出'
+          if [ "$FALLBACK_OUTCOME" = 'failure' ]; then
+            reason="$reason；DevPortal 回退未成功"
+          fi
+          shard="${{ matrix.label || format('分片 {0}', matrix.index) }}"
+          echo "::error::Go Test $shard 失败：$reason"
+          echo "detail=Go Test $shard 失败：$reason" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Go Test $shard 失败"
+            echo
+            echo "$reason"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 输出资源采样
         if: always()
@@ -205,6 +236,7 @@ jobs:
           PLAN_RESULT: ${{ needs.plan.result }}
           PLAN_RUN: ${{ needs.plan.outputs.run }}
           SHARD_RESULT: ${{ needs.shard.result }}
+          SHARD_DETAIL: ${{ needs.shard.outputs.detail }}
         run: |
           set -euo pipefail
           if [ "$PLAN_RESULT" = 'cancelled' ] || [ "$SHARD_RESULT" = 'cancelled' ]; then
@@ -220,7 +252,15 @@ jobs:
             exit 0
           fi
           if [ "$SHARD_RESULT" != 'success' ]; then
-            echo "::error::Go Test 分片结果：$SHARD_RESULT"
+            detail="${SHARD_DETAIL:-失败详情见上方错误标注与各分片任务日志}"
+            echo "::error::Go Test 分片未通过：$detail"
+            {
+              echo "### Go Test 未通过"
+              echo
+              echo "$detail"
+              echo
+              echo "多分片运行时，每个失败分片在上方错误标注中另有独立详情。"
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           echo "Go Test 全部通过。"

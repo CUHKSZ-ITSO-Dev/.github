@@ -149,7 +149,7 @@ class PlanTest(unittest.TestCase):
                                ['util/helper.go'], ROWS)
         self.assertEqual(mode, 'affected')
         entry, = matrix['include']
-        self.assertEqual(entry['label'], '全部')
+        self.assertEqual(entry['label'], '定向')
         groups = json.loads(entry['groups'])
         self.assertGreater(len(groups), 1)
         merged = sorted(pkg for group in groups for pkg in group)
@@ -159,7 +159,14 @@ class PlanTest(unittest.TestCase):
         matrix, mode, _ = plan({'single-runner': 'true'}, 'pull_request', 'true',
                                ['util/helper.go'], None)
         self.assertEqual(mode, 'bypassed')
-        self.assertEqual(matrix['include'][0]['label'], '全部')
+        self.assertEqual(matrix['include'][0]['label'], '全量')
+
+    def test_single_runner_full_mode_labels_full_sweep(self):
+        matrix, mode, _ = plan({'test-selection': 'false', 'test-shards': '3',
+                                'single-runner': 'true'},
+                               'pull_request', 'true', ['util/helper.go'], ROWS)
+        self.assertEqual(mode, 'all')
+        self.assertEqual(matrix['include'][0]['label'], '全量')
 
 
 if __name__ == '__main__':

@@ -44,6 +44,16 @@ class CaptureTests(unittest.TestCase):
                 "echo '--- FAIL: TestAlpha'; echo 'no space left on device'; exit 1"), 1)
             self.assertTrue(capture.marker().exists())
             self.assertFalse(capture.summary_marker().exists())
+            self.assertIn('ENOSPC', capture.reason_marker().read_text())
+
+    def test_preflight_records_space_shortage_reason(self):
+        from collections import namedtuple
+        usage = namedtuple('Usage', 'total used free')
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, RUNNER_TEMP=root, GITHUB_WORKSPACE=root, MINIMUM_FREE_GIB='20', GITHUB_REPOSITORY='CUHKSZ-ITSO-Dev/UniAuth'), patch.object(capture.shutil, 'disk_usage', return_value=usage(100, 95, 7.8 * 1024 ** 3)):
+            self.assertEqual(capture.check_space(), 125)
+            reason = capture.reason_marker().read_text()
+            self.assertIn('7.8 GiB', reason)
+            self.assertIn('20 GiB', reason)
 
     def test_preflight_detects_low_space_only_for_supported_fallback(self):
         from collections import namedtuple

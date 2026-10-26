@@ -153,6 +153,12 @@ runs:
         key: go-mod-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-${{ hashFiles(fromJSON(inputs.policy-json).cache-dependency-path) }}
         restore-keys: |
           go-mod-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-
+    - name: 缓存恢复后按余量清理
+      # 缓存解包、工具链下载和后台镜像拉取发生在首次清理之后，可能在检查前吃掉余量。
+      if: fromJSON(inputs.policy-json).clean-unused-sdks == 'true' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+      uses: CUHKSZ-ITSO-Dev/.github/actions/go-disk-space@main
+      with:
+        minimum-free-gib: ${{ fromJSON(inputs.policy-json).minimum-free-disk-gib }}
     - name: 检查编译空间
       env:
         MINIMUM_FREE_GIB: ${{ fromJSON(inputs.policy-json).minimum-free-disk-gib }}

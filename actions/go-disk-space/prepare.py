@@ -4,7 +4,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
-SDK_PATHS = ('/usr/share/dotnet', '/opt/ghc', '/usr/local/lib/android')
+SDK_PATHS = ('/usr/share/dotnet', '/opt/ghc', '/usr/local/lib/android',
+             '/usr/share/swift', '/usr/lib/jvm', '/opt/hostedtoolcache/CodeQL')
 
 
 def prepare(workspace, minimum_gib, free=None, remove=None, exists=None):

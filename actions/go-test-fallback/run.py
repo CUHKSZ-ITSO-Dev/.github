@@ -51,25 +51,20 @@ def main():
     print('GitHub runner 磁盘不足，等待 DevPortal 执行同一 commit。', flush=True)
     # Request keys are stable across retries. No credentials or raw API errors are printed.
     deadline = time.monotonic() + 90 * 60
+    outage_since = None
     previous = None
-    failures = 0
     while time.monotonic() < deadline:
         try:
             result = request_result(payload)
-            failures = 0
         except HTTPError as error:
             if error.code not in (429, 502, 503, 504):
                 print(f'::error::DevPortal 拒绝回退请求（HTTP {error.code}）。')
                 return 1
-            failures += 1
             result = None
         except (URLError, TimeoutError):
-            failures += 1
             result = None
-        if failures >= 10:
-            print('::error::DevPortal 持续不可用，回退失败。')
-            return 1
         if result:
+            outage_since = None
             status = (result['phase'], result['message'])
             if status != previous:
                 print(f"DevPortal: {result['phase']} — {result['message']}", flush=True)
@@ -77,6 +72,12 @@ def main():
             if result['phase'] == 'Succeeded':
                 return 0
             if result['phase'] in ('Failed', 'Stale', 'Cancelled', 'Bypassed'):
+                return 1
+        else:
+            # 瞬时网络抖动和门户重启不应终止等待；连续不可达满 10 分钟才放弃。
+            outage_since = outage_since or time.monotonic()
+            if time.monotonic() - outage_since >= 10 * 60:
+                print('::error::DevPortal 连续 10 分钟不可达，回退失败。')
                 return 1
         time.sleep(15)
     print('::error::等待 DevPortal 测试结果超时。')

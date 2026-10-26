@@ -19,11 +19,16 @@ def summary_marker():
     return Path(os.environ['RUNNER_TEMP']) / 'go-test-failure-summary'
 
 
-def record_disk_failure():
+def reason_marker():
+    return Path(os.environ['RUNNER_TEMP']) / 'go-test-infra-reason'
+
+
+def record_disk_failure(reason):
     # The preflight reserves room for the tiny handoff; no test output is stored.
     reserve = marker().with_name('go-test-handoff-reserve')
     reserve.unlink(missing_ok=True)
     marker().write_text('disk-exhausted\n')
+    reason_marker().write_text(reason + '\n')
 
 
 def record_failure_summary(names):
@@ -50,7 +55,7 @@ def capture(command):
     process.stdout.close()
     code = process.wait()
     if code and disk_failure:
-        record_disk_failure()
+        record_disk_failure('测试执行中磁盘空间耗尽（ENOSPC）')
     elif code:
         record_failure_summary((tests + [name for name in packages if name not in tests])[:8])
     return code
@@ -60,10 +65,11 @@ def check_space():
     minimum = int(os.environ['MINIMUM_FREE_GIB']) * 1024 ** 3
     remaining = shutil.disk_usage(os.environ['GITHUB_WORKSPACE']).free
     if remaining < minimum:
-        print(f'::warning::清理后编译空间不足：{remaining / 1024 ** 3:.1f} GiB，需要 {minimum / 1024 ** 3:.0f} GiB。')
+        gib = remaining / 1024 ** 3
+        print(f'::warning::清理后编译空间不足：{gib:.1f} GiB，需要 {minimum / 1024 ** 3:.0f} GiB。')
         if os.environ.get('GITHUB_REPOSITORY') not in {'CUHKSZ-ITSO-Dev/Chat', 'CUHKSZ-ITSO-Dev/UniAuth', 'CUHKSZ-ITSO-Dev/open-platform'}:
             return 0
-        record_disk_failure()
+        record_disk_failure(f'GitHub runner 可用空间不足：{gib:.1f} GiB，低于 {minimum / 1024 ** 3:.0f} GiB 门槛')
         return 125
     return 0
 
