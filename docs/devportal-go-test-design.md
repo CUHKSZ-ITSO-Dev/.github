@@ -8,7 +8,7 @@ Chat、UniAuth、open-platform 保留业务仓库现有 Go Test workflow；所�
 
 恢复缓存前按需清理未使用的 SDK，空间不足时执行深度清理（完整 SDK 清单、`/opt/hostedtoolcache` 保留 Go 工具链、无关预装 Docker 镜像），并在缓存恢复后、编译空间检查前再次执行；Go 缓存仅恢复编译产物、不恢复模块下载目录，不复用旧大型缓存键。清理后仍未达到编译空间阈值，或受控 shell 命令明确返回 ENOSPC / No space left on device / Disk quota exceeded 时，启动回退。预留少量 handoff 空间，磁盘错误后释放。
 
-回退请求经 GitHub commit status 中转：GitHub-hosted runner 无法直连内网 DevPortal（公网 DNS 不解析内网域名，2026-10 从 runner 实测确认），GitHub API 是双方唯一共同可达的通道。Actions 在 run head SHA 上写 context `devportal/go-test-fallback` 的 pending 状态，description 前缀 `run <id> attempt <n>` 与 target_url 的 run/attempt 链接承载请求身份；DevPortal 在既有 30 秒 GitHub 轮询回路里扫描开放 PR head 与 main 上的最新状态，发现 pending 后沿用与原 HTTP 端点相同的校验（runID、run attempt、head SHA、运行状态、原业务入口和统一 Go Test workflow 引用），登记幂等 DevBuild，再把进度与终态写回同一 context。Actions 轮询同一 status 直到终态。该通道要求业务入口与共享 workflow 授予 `statuses: write`；写权限仅用于发出回退请求，DevPortal 的写回使用自身服务端凭据。内网 HTTP 端点保留给手动触发与诊断。
+回退请求经 GitHub commit status 中转：GitHub-hosted runner 无法直连内网 DevPortal（公网 DNS 不解析内网域名，2026-10 从 runner 实测确认），GitHub API 是双方唯一共同可达的通道。Actions 在 run head SHA 上写 context `devportal/go-test-fallback` 的 pending 状态，description 前缀 `run <id> attempt <n>` 与 target_url 的 run/attempt 链接承载请求身份；DevPortal 在既有 30 秒 GitHub 轮询回路里扫描开放 PR head 与 main 上的最新状态（workflow_dispatch 触发的非 main 分支 run 不在扫描范围），发现 pending 后沿用与原 HTTP 端点相同的校验（runID、run attempt、head SHA、运行状态、原业务入口和统一 Go Test workflow 引用），登记幂等 DevBuild，再把进度与终态写回同一 context。Actions 轮询同一 status 直到终态。该通道要求业务入口与共享 workflow 授予 `statuses: write`；写权限仅用于发出回退请求，DevPortal 的写回使用自身服务端凭据。内网 HTTP 端点保留给手动触发与诊断。
 
 仅接受三个纳管仓库。DevPortal 只为正在运行的合法 Go Test run 执行该 run 的固定测试，不能指定其他执行镜像、命令或部署参数；伪造 status 需要仓库写权限，且仍须通过 run 校验，信任面与原方案等价。token 不入库、不写日志。
 
