@@ -6,7 +6,7 @@ Chat、UniAuth、open-platform 保留业务仓库现有 Go Test workflow；所�
 
 共享工作流先按照集中策略进行范围判断，再在 GitHub runner 执行原来的完整测试。PR checkout 使用最后推送的 head，保留 race、LFS、CGO、生成文件校验和隔离数据库。普通断言失败、生成物漂移、网络错误及数据库初始化错误直接失败。
 
-恢复缓存前按需清理未使用的 SDK，Go 缓存仅恢复编译产物、不恢复模块下载目录，不复用旧大型缓存键。清理后仍未达到编译空间阈值，或受控 shell 命令明确返回 ENOSPC / No space left on device / Disk quota exceeded 时，启动回退。预留少量 handoff 空间，磁盘错误后释放。
+恢复缓存前按需清理未使用的 SDK，空间不足时执行深度清理（完整 SDK 清单、`/opt/hostedtoolcache` 保留 Go 工具链、无关预装 Docker 镜像），并在缓存恢复后、编译空间检查前再次执行；Go 缓存仅恢复编译产物、不恢复模块下载目录，不复用旧大型缓存键。清理后仍未达到编译空间阈值，或受控 shell 命令明确返回 ENOSPC / No space left on device / Disk quota exceeded 时，启动回退。预留少量 handoff 空间，磁盘错误后释放。
 
 Actions 使用现有临时 contents:read token 请求 `POST /dev/api/v1/go-test/fallback`，不要求业务入口添加 OIDC 或写权限。DevPortal 向 GitHub 独立校验仓库读取凭据，并用服务端凭据核对 runID、run attempt、head SHA、运行状态、原业务入口和统一 Go Test workflow 引用。仅接受三个纳管仓库；token 不入库、不写日志。具有仓库读取权限的调用者仅能为正在运行的合法 Go Test run 请求该 run 的固定测试，不能指定其他执行镜像、命令或部署参数。
 
