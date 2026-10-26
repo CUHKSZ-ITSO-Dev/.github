@@ -203,8 +203,12 @@ jobs:
             reason="失败用例/包：$(cat "$RUNNER_TEMP_PATH/go-test-failure-summary")"
           fi
           [ -z "$reason" ] && reason='失败详情见上方测试输出'
-          if [ "$FALLBACK_OUTCOME" = 'failure' ]; then
+          # 磁盘兜底路径（capture.py 记录 infra-reason）失败才代表回退未成功；
+          # 普通用例失败时兜底按设计不启动，摘要需如实说明，避免误读为回退故障。
+          if [ "$FALLBACK_OUTCOME" = 'failure' ] && [ -f "$RUNNER_TEMP_PATH/go-test-infra-reason" ]; then
             reason="$reason；DevPortal 回退未成功"
+          elif [ "$FALLBACK_OUTCOME" = 'failure' ]; then
+            reason="$reason；失败与磁盘无关，未触发回退"
           fi
           shard="${{ matrix.label || format('分片 {0}', matrix.index) }}"
           echo "::error::Go Test $shard 失败：$reason"
