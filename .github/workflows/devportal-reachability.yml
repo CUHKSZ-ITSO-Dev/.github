@@ -1,0 +1,43 @@
+name: DevPortal 连通性诊断
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: DevPortal 连通性诊断
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 从 GitHub runner 探测 DevPortal 回退端点
+        shell: bash
+        run: |
+          set -uo pipefail
+          host=testopenai-dev03.cuhk.edu.cn
+          url="https://$host/dev/api/v1/go-test/fallback"
+
+          echo '## DNS 解析'
+          getent hosts "$host" || echo 'DNS 解析失败'
+
+          echo '## TCP 443'
+          if timeout 10 bash -c "cat < /dev/null > /dev/tcp/$host/443" 2>/dev/null; then
+            echo 'TCP 可达'
+          else
+            echo 'TCP 不可达（连接被拒、超时或被防火墙拦截）'
+          fi
+
+          echo '## HTTPS GET /'
+          curl -sS -o /dev/null -m 15 \
+            -w 'HTTP %{http_code}，总耗时 %{time_total}s（DNS %{time_namelookup}s / TCP %{time_connect}s / TLS %{time_appconnect}s）\n' \
+            "https://$host/" || echo 'HTTPS 请求失败'
+
+          echo '## HTTPS POST 回退端点（空 payload；HTTP 400/401/403 即代表链路可达）'
+          curl -sS -m 15 -w '\nHTTP %{http_code}，总耗时 %{time_total}s\n' \
+            -X POST -H 'Content-Type: application/json' -d '{}' "$url" || echo '回退端点请求失败'
+
+          echo '## 对照组：api.github.com'
+          curl -sS -o /dev/null -m 15 -w 'HTTP %{http_code}，总耗时 %{time_total}s\n' \
+            https://api.github.com/ || echo 'api.github.com 请求失败'

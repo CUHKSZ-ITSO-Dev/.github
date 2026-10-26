@@ -40,6 +40,12 @@
       "test": "Go Test"
     }
   },
+  ".github/workflows/devportal-reachability.yml": {
+    "name": "DevPortal 连通性诊断",
+    "jobs": {
+      "probe": "DevPortal 连通性诊断"
+    }
+  },
   ".github/workflows/python-uv-redis-rabbitmq-check.yml": {
     "name": "常规 Python uv Redis RabbitMQ 检查",
     "jobs": {
