@@ -35,6 +35,7 @@
   ".github/workflows/go-test.yml": {
     "name": "Go Test",
     "jobs": {
+      "identity": "并发组标识",
       "plan": "Go Test 计划",
       "shard": "Go Test ${{ matrix.label || format('分片 {0}', matrix.index) }}",
       "test": "Go Test"
@@ -67,6 +68,7 @@
   ".github/workflows/migration-check.yml": {
     "name": "常规迁移检查",
     "jobs": {
+      "identity": "并发组标识",
       "migration": "常规迁移检查"
     }
   },
@@ -79,18 +81,21 @@
   ".github/workflows/docker-build-push.yml": {
     "name": "常规 Docker 镜像构建",
     "jobs": {
+      "identity": "并发组标识",
       "build": "常规 Docker 镜像构建"
     }
   },
   ".github/workflows/frontend-check.yml": {
     "name": "前端检查",
     "jobs": {
+      "identity": "并发组标识",
       "frontend": "前端检查"
     }
   },
   ".github/workflows/python-uv-check.yml": {
     "name": "常规 Python uv 检查",
     "jobs": {
+      "identity": "并发组标识",
       "check": "常规 Python uv 检查"
     }
   },
@@ -116,6 +121,7 @@
   ".github/workflows/golangci-lint.yml": {
     "name": "golangci-lint",
     "jobs": {
+      "identity": "并发组标识",
       "golangci": "golangci-lint"
     }
   },

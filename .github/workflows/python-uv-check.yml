@@ -48,11 +48,27 @@ permissions:
   pull-requests: read
 
 jobs:
+  # 同一调用工作流可能以不同入参多次调用本工作流（如不同检查命令），
+  # 并发组必须带全部入参的指纹，否则 PR 上后启动的调用会取消先启动的调用。
+  identity:
+    name: 并发组标识
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    outputs:
+      key: ${{ steps.fingerprint.outputs.key }}
+    steps:
+      - name: 计算调用指纹
+        id: fingerprint
+        uses: CUHKSZ-ITSO-Dev/.github/actions/concurrency-key@main
+        with:
+          payload: ${{ toJSON(inputs) }}
+
   check:
     name: 常规 Python uv 检查
+    needs: identity
     runs-on: ubuntu-latest
     concurrency:
-      group: shared-python-uv-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
+      group: shared-python-uv-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-${{ needs.identity.outputs.key }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: 读取统一 CI 配置

@@ -103,16 +103,32 @@ permissions:
   statuses: write
 
 jobs:
+  # 与其他共享检查一致的调用指纹 job，并发组规则见 actions/concurrency-key。
+  identity:
+    name: 并发组标识
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    outputs:
+      key: ${{ steps.fingerprint.outputs.key }}
+    steps:
+      - name: 计算调用指纹
+        id: fingerprint
+        uses: CUHKSZ-ITSO-Dev/.github/actions/concurrency-key@main
+        with:
+          payload: ${{ toJSON(inputs) }}
+
   plan:
     name: Go Test 计划
+    needs: identity
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
-      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
+      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-${{ needs.identity.outputs.key }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     outputs:
       run: ${{ steps.plan.outputs.run }}
       matrix: ${{ steps.shards.outputs.matrix || '{"include":[{"index":1,"packages":"./..."}]}' }}
+      key: ${{ needs.identity.outputs.key }}
     steps:
       - name: 读取统一 CI 配置
         id: policy
@@ -155,7 +171,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     concurrency:
-      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-shard-${{ matrix.index }}
+      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-shard-${{ matrix.index }}-${{ needs.plan.outputs.key }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: 读取统一 CI 配置
@@ -232,7 +248,7 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 5
     concurrency:
-      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-aggregate
+      group: shared-go-test-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-aggregate-${{ needs.plan.outputs.key }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: 汇总 Go Test 结果
