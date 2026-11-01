@@ -53,7 +53,14 @@ jobs:
     runs-on: ubuntu-slim
     outputs:
       run: ${{ steps.plan.outputs.run }}
+      key: ${{ steps.fingerprint.outputs.key }}
     steps:
+      # 并发组需带全部入参的指纹，见 actions/concurrency-key。
+      - name: 计算调用指纹
+        id: fingerprint
+        uses: CUHKSZ-ITSO-Dev/.github/actions/concurrency-key@main
+        with:
+          payload: ${{ toJSON(inputs) }}
       - name: 读取统一 CI 配置
         id: policy
         uses: CUHKSZ-ITSO-Dev/.github/actions/ci-policy@main
@@ -77,7 +84,7 @@ jobs:
     if: ${{ !cancelled() && (needs.scope.result != 'success' || needs.scope.outputs.run != 'false') }}
     runs-on: ubuntu-latest
     concurrency:
-      group: shared-python-uv-redis-rabbitmq-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
+      group: shared-python-uv-redis-rabbitmq-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-${{ needs.scope.outputs.key }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     services:
       redis:

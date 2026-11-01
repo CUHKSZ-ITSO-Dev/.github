@@ -96,11 +96,26 @@ permissions:
   contents: read
 
 jobs:
+  # 与其他共享检查一致的调用指纹 job，并发组规则见 actions/concurrency-key。
+  identity:
+    name: 并发组标识
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    outputs:
+      key: ${{ steps.fingerprint.outputs.key }}
+    steps:
+      - name: 计算调用指纹
+        id: fingerprint
+        uses: CUHKSZ-ITSO-Dev/.github/actions/concurrency-key@main
+        with:
+          payload: ${{ toJSON(inputs) }}
+
   migration:
     name: 常规迁移检查
+    needs: identity
     runs-on: ubuntu-latest
     concurrency:
-      group: shared-migration-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}
+      group: shared-migration-check-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.working-directory || '.' }}-${{ needs.identity.outputs.key }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: 读取统一 CI 配置
