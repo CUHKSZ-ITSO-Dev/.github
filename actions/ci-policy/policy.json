@@ -159,7 +159,7 @@
         "test-selection": true,
         "test-shards": 3,
         "selection-ignored-paths": "**/docs/**\n**/*.md\n*.md\n.github/**\nLICENSE*\n.gitignore\n**/.golangci.yml\n**/.golangci.yaml\n**/Dockerfile\nDockerfile\n.dockerignore\n**/*.code-workspace\nuniauth-vite/**\n",
-        "single-runner": true
+        "single-runner": false
       },
       "golangci-lint": {
         "working-directory": "uniauth-gf",
