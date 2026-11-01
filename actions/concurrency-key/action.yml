@@ -2,7 +2,7 @@ name: 计算并发组标识
 description: 对复用工作流的全部入参计算稳定短指纹，作为并发组的调用标识，避免同一调用工作流的多次调用互相取消
 inputs:
   payload:
-    description: 指纹载荷，调用方固定传 ${{ toJSON(inputs) }}
+    description: 指纹载荷，调用方固定传 toJSON(inputs) 的求值结果（workflow 内 with: payload 的模板写法见 README 并发组一节；description 中不可用模板表达式）
     required: true
 outputs:
   key:
