@@ -181,6 +181,16 @@ class SharedConcurrencyTest(unittest.TestCase):
             for group in re.findall(r'^      group: (.+)$', source, re.M):
                 self.assertIn('outputs.key', group, f'{name} 并发组缺少指纹：{group}')
 
+    def test_action_metadata_is_manifest_safe(self):
+        """action 元数据不得含模板表达式；runner 的 manifest 解析器会拒载
+        （actionlint 与本地 YAML 解析都不校验这一点，须在此守住）。"""
+        source = (ROOT / 'actions/concurrency-key/action.yml').read_text()
+        metadata, _, _ = source.partition('runs:')
+        for line in metadata.splitlines():
+            if '${{' in line:
+                self.assertRegex(line.lstrip(), r'^value:',
+                                 f'metadata 字段不允许模板表达式：{line.strip()}')
+
     def test_action_script_behaviour(self):
         """端到端执行 action 的实际脚本：确定性、敏感性、输出格式。"""
         if shutil.which('sha256sum') is None:
