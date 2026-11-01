@@ -19,4 +19,7 @@ runs:
         set -euo pipefail
         # 指纹覆盖全部入参：任何入参不同都会得到不同并发组，互不取消；
         # 入参不变则指纹不变，同一调用的新提交仍能按原组取代旧运行。
+        # 依赖 GNU coreutils 的 sha256sum（GitHub 托管 ubuntu runner 自带），
+        # 未在 macos/windows runner 上验证。指纹基于 toJSON(inputs) 原文，
+        # 键序随工作流入参声明序固定；若序列化行为变化，仅造成一次取代中断。
         echo "key=$(printf '%s' "$PAYLOAD" | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"

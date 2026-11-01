@@ -11,8 +11,12 @@
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 
@@ -71,9 +75,38 @@ CHANGED = {
 
 
 def fingerprint(inputs):
-    """与 actions/concurrency-key 一致：全部入参序列化后取 sha256 前 12 位。"""
+    """并发组指纹的平行模拟：对全部入参做规范化序列化后取 sha256 前 12 位。
+
+    与 actions/concurrency-key 的算法同构但不等值：action 对 GitHub
+    `toJSON(inputs)` 的原始文本哈希（键序为工作流入参声明序），本函数用
+    Python 序列化。端到端行为（确定性、敏感性、格式）由
+    `test_action_script_behaviour` 直接执行 action 脚本验证，不依赖本模拟。
+    """
     payload = json.dumps(inputs, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode()).hexdigest()[:12]
+
+
+def _has_workflow_call_inputs(source):
+    """workflow_call 是否声明 inputs（对 on: 块做缩进扫描，容忍注释与空行）。"""
+    lines = source.splitlines()
+    for i, line in enumerate(lines):
+        if not re.match(r'^on:\s*$', line):
+            continue
+        for j in range(i + 1, len(lines)):
+            follow = lines[j]
+            if follow.strip() == '' or follow.lstrip().startswith('#'):
+                continue
+            if not re.match(r'^  workflow_call:\s*$', follow):
+                break
+            for tail in lines[j + 1:]:
+                if tail.strip() == '' or tail.lstrip().startswith('#'):
+                    continue
+                if len(tail) - len(tail.lstrip()) <= 2:
+                    return False
+                if re.match(r'\s*inputs:', tail):
+                    return True
+        return False
+    return False
 
 
 class SharedWorkflow:
@@ -100,7 +133,11 @@ class SharedWorkflow:
         def resolve_expression(match):
             for operand in match.group(1).split('||'):
                 operand = operand.strip()
-                value = operand[1:-1] if operand.startswith("'") else context.get(operand, '')
+                if operand.startswith("'"):
+                    return operand[1:-1]
+                if operand not in context:
+                    raise AssertionError(f'并发组引用了未建模的上下文：{operand}')
+                value = context[operand]
                 if value != '' and value is not None:
                     return str(value)
             return ''
@@ -144,19 +181,41 @@ class SharedConcurrencyTest(unittest.TestCase):
             for group in re.findall(r'^      group: (.+)$', source, re.M):
                 self.assertIn('outputs.key', group, f'{name} 并发组缺少指纹：{group}')
 
+    def test_action_script_behaviour(self):
+        """端到端执行 action 的实际脚本：确定性、敏感性、输出格式。"""
+        if shutil.which('sha256sum') is None:
+            self.skipTest('本机没有 sha256sum（CI 的 ubuntu runner 必有）')
+        action = (ROOT / 'actions/concurrency-key/action.yml').read_text()
+        block = action.split('run: |', 1)[1].splitlines()
+        script = '\n'.join(line[8:] for line in block
+                           if line.startswith(' ' * 8) or not line.strip())
+        with tempfile.TemporaryDirectory() as tmp:
+            def run(payload):
+                output = Path(tmp) / 'output'
+                output.write_text('')
+                subprocess.run(['bash', '-c', script], check=True,
+                               env={**os.environ, 'PAYLOAD': payload,
+                                    'GITHUB_OUTPUT': str(output)},
+                               cwd=tmp, capture_output=True, text=True)
+                match = re.search(r'^key=(.+)$', output.read_text(), re.M)
+                self.assertIsNotNone(match, 'action 未产出 key')
+                return match.group(1)
+
+            self.assertRegex(run('{"check-command":"pytest"}'), r'^[0-9a-f]{12}$')
+            self.assertEqual(run('{"check-command":"pytest"}'),
+                             run('{"check-command":"pytest"}'), '同入参指纹应稳定')
+            self.assertNotEqual(run('{"check-command":"pytest"}'),
+                                run('{"check-command":"other"}'), '不同入参指纹应不同')
+
     def test_every_shared_group_is_accounted_for(self):
         for path in sorted(WORKFLOWS.glob('*.yml')):
             wf = SharedWorkflow(path)
-            if not wf.groups:
-                continue
-            if path.name in FINGERPRINTED:
+            if not wf.groups or path.name in FINGERPRINTED:
                 continue
             # 不带指纹的共享组只允许出现在无 workflow_call 入参的工作流中；
             # 给这类工作流加入参时必须先接入指纹机制。
-            source = path.read_text()
-            self.assertNotIn(path.name, FINGERPRINTED)
-            self.assertIsNone(re.search(r'workflow_call:\s*\n\s*inputs:', source),
-                              f'{path.name} 声明了入参但并发组未接指纹')
+            self.assertFalse(_has_workflow_call_inputs(path.read_text()),
+                             f'{path.name} 声明了入参但并发组未接指纹')
             for group in wf.groups:
                 self.assertNotIn('inputs.', group,
                                  f'{path.name} 并发组手工引用入参，应改用统一指纹：{group}')
