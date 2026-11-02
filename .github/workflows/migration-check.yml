@@ -367,7 +367,7 @@ jobs:
             -p 1433:1433 \
             mcr.microsoft.com/mssql/server:2025-latest@sha256:2b5b581621126574f3d1f75e78d3eebe8d05aedb59ad0cfdf9aa42cb0634d726
 
-          for _ in {1..60}; do
+          for _ in {1..150}; do
             if docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
               -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
               echo "SQL Server 已就绪。"
@@ -378,7 +378,7 @@ jobs:
             fi
             sleep 2
           done
-          echo "::error::SQL Server 未就绪"
+          echo "::error::SQL Server 未就绪（已等待 5 分钟）"
           exit 1
 
       - name: 等待 SQL Server 数据库就绪
@@ -388,7 +388,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          for _ in {1..30}; do
+          for _ in {1..60}; do
             if docker exec migration-sqlserver /opt/mssql-tools18/bin/sqlcmd \
               -S localhost -U sa -P 'DevPass123!' -C -d "$TARGET_DATABASE" \
               -Q 'SELECT 1' >/dev/null 2>&1; then
