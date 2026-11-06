@@ -96,6 +96,11 @@ on:
         required: false
         type: boolean
         default: false
+      runner:
+        description: 分片 job 的 runs-on；kata-ci 为集群自建 runner，需该仓库已注册对应 scale set
+        required: false
+        type: string
+        default: ubuntu-latest
 
 permissions:
   contents: read
@@ -163,7 +168,7 @@ jobs:
     name: Go Test ${{ matrix.label || format('分片 {0}', matrix.index) }}
     needs: plan
     if: needs.plan.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 110
     outputs:
       detail: ${{ steps.report.outputs.detail }}
