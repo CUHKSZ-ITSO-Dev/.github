@@ -140,7 +140,14 @@ runs:
           echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
       shell: bash
       run: python3 "$GITHUB_ACTION_PATH/capture.py"
-
+      
+    - name: 恢复自建 runner 的 Go 缓存
+      if: runner.environment == 'self-hosted'
+      env:
+        CACHE_SUFFIX: ${{ inputs.cache-suffix }}
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/local_cache.sh" restore
+      
     - name: 恢复 Go 缓存
       if: runner.environment == 'github-hosted'
       uses: actions/cache@v6.1.0
