@@ -37,6 +37,10 @@ runs:
           sqlserver) image="$SQLSERVER_IMAGE" ;;
           *) exit 0 ;;
         esac
+        # 自建 runner 经集群内拉取代理获取 mcr 镜像，digest 不变。
+        if [ -n "${CI_MCR_MIRROR:-}" ]; then
+          case "$image" in mcr.microsoft.com/*) image="$CI_MCR_MIRROR/${image#mcr.microsoft.com/}" ;; esac
+        fi
         (docker pull "$image" > /tmp/go-test-db-pull.log 2>&1 &)
 
     - name: 设置 Go 编译并发
@@ -138,6 +142,7 @@ runs:
       run: python3 "$GITHUB_ACTION_PATH/capture.py"
 
     - name: 恢复 Go 缓存
+      if: runner.environment == 'github-hosted'
       uses: actions/cache@v6.1.0
       with:
         path: |
@@ -146,6 +151,7 @@ runs:
         restore-keys: |
           go-test-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-cache.outputs.version }}-
     - name: 恢复 Go 模块下载缓存
+      if: runner.environment == 'github-hosted'
       uses: actions/cache@v6.1.0
       with:
         path: |
@@ -241,6 +247,9 @@ runs:
         SQLSERVER_IMAGE: ${{ fromJSON(inputs.policy-json).sqlserver-image }}
         CAPTURE_COMMAND: |
           set -euo pipefail
+          if [ -n "${CI_MCR_MIRROR:-}" ]; then
+            case "$SQLSERVER_IMAGE" in mcr.microsoft.com/*) SQLSERVER_IMAGE="$CI_MCR_MIRROR/${SQLSERVER_IMAGE#mcr.microsoft.com/}" ;; esac
+          fi
           wait_database() {
             local database_name="$1"
             for _ in {1..60}; do
@@ -304,3 +313,12 @@ runs:
 
       shell: bash
       run: python3 "$GITHUB_ACTION_PATH/capture.py"
+
+    - name: 写回自建 runner 的 Go 缓存
+      if: runner.environment == 'self-hosted'
+      env:
+        CACHE_SUFFIX: ${{ inputs.cache-suffix }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/local_cache.sh" save
+
