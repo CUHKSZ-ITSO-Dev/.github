@@ -268,12 +268,31 @@ runs:
             echo "::error::SQL Server 数据库 ${database_name} 未就绪"
             return 1
           }
-          docker run -d --name go-test-sqlserver \
-            -e ACCEPT_EULA=Y \
-            -e 'MSSQL_SA_PASSWORD=DevPass123!' \
-            -p 1433:1433 "$SQLSERVER_IMAGE"
+          sqlserver_ready() {
+            docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1
+          }
+          start_sqlserver() {
+            docker rm -f go-test-sqlserver >/dev/null 2>&1 || true
+            docker run -d --name go-test-sqlserver \
+              -e ACCEPT_EULA=Y \
+              -e 'MSSQL_SA_PASSWORD=DevPass123!' \
+              -p 1433:1433 "$SQLSERVER_IMAGE"
+          }
+          report_sqlserver_crash() {
+            # 上游已知问题族（mssql-docker #951/#954/#959）：2025 容器在部分宿主启动即断言崩溃。
+            # docker logs 尾部多为 paldumper 噪声，先抓断言原因与容器状态，再输出过滤后的尾部日志。
+            docker inspect -f '容器状态：Running={{.State.Running}} ExitCode={{.State.ExitCode}} OOMKilled={{.State.OOMKilled}} Error={{.State.Error}}' go-test-sqlserver 2>&1 || true
+            echo "容器日志断言/错误行："
+            if ! docker logs go-test-sqlserver 2>&1 | grep -m8 -e "Reason: " -e "ASSERT:" -e "fatal error" -e "Unable to initialize" -e "Error: "; then
+              echo "（未捕获到断言行，见下方尾部日志）"
+            fi
+            echo "容器日志尾部（过滤 paldumper 噪声）："
+            docker logs --tail 40 go-test-sqlserver 2>&1 | grep -v -e "find: " -e "dmesg:" -e "journalctl" -e "Dump already" -e "Moving logs" -e "Capturing " -e "Not compressing" || true
+          }
+          start_sqlserver
+          sqlserver_restarts=0
           for _ in {1..300}; do
-            if docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' >/dev/null 2>&1; then
+            if sqlserver_ready; then
               docker exec go-test-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q "CREATE DATABASE [${{ fromJSON(inputs.policy-json).database-name }}]"
               wait_database "${{ fromJSON(inputs.policy-json).database-name }}"
               if [ -n "${{ fromJSON(inputs.policy-json).app-database-name }}" ]; then
@@ -281,6 +300,20 @@ runs:
                 wait_database "${{ fromJSON(inputs.policy-json).app-database-name }}"
               fi
               exit 0
+            fi
+            # 容器进程已退出：继续等待无意义。上游 2025 已知崩溃问题族多为瞬时（重跑即绿），
+            # 原位重试一次（等价自愈，不占 run 级重跑名额）；仍崩溃则抓取原因快速失败。
+            # 慢启动（容器存活但未就绪）不受影响，仍保留完整 10 分钟探测窗口。
+            if [ "$(docker inspect -f '{{.State.Running}}' go-test-sqlserver 2>/dev/null)" != "true" ]; then
+              if [ "$sqlserver_restarts" -ge 1 ]; then
+                report_sqlserver_crash
+                echo "::error::SQL Server 容器启动后崩溃，原位重试仍崩溃（疑似上游 2025 已知问题，需按断言行定位）"
+                exit 1
+              fi
+              sqlserver_restarts=$((sqlserver_restarts + 1))
+              echo "::warning::SQL Server 容器启动即退出（上游 2025 已知崩溃问题族），原位重试一次。"
+              report_sqlserver_crash
+              start_sqlserver
             fi
             sleep 2
           done
