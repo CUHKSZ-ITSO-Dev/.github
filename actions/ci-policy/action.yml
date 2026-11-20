@@ -81,6 +81,9 @@ outputs:
   golangci-version:
     description: golangci-version
     value: ${{ steps.resolve.outputs.golangci-version }}
+  analysis-timeout:
+    description: analysis-timeout
+    value: ${{ steps.resolve.outputs.analysis-timeout }}
   ignored-paths:
     description: ignored-paths
     value: ${{ steps.resolve.outputs.ignored-paths }}
