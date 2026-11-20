@@ -31,6 +31,7 @@
       "go-version-file": "",
       "cache-dependency-path": "",
       "golangci-version": "v2.14.0",
+      "analysis-timeout": "10m",
       "changed-paths": "**/*.go\ngo.mod\n**/go.mod\ngo.sum\n**/go.sum\n.golangci.yml\n**/.golangci.yml\n.golangci.yaml\n**/.golangci.yaml\n",
       "lfs-include": "",
       "cgo-enabled": "",

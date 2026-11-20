@@ -109,6 +109,11 @@ class PolicyTest(unittest.TestCase):
                          {'go-version': '1.26.2', 'go-version-file': ''}, self.policy)
         self.assertEqual(result['go-version-file'], 'uniauth-gf/go.mod')
 
+    def test_lint_analysis_timeout_is_central_and_callers_cannot_override(self):
+        result = resolve('CUHKSZ-ITSO-Dev/Chat', 'golangci-lint',
+                         {'analysis-timeout': '1m'}, self.policy)
+        self.assertEqual(result['analysis-timeout'], '10m')
+
     def test_uniauth_frontend_caller_cannot_skip_build_or_browser_checks(self):
         result = resolve('CUHKSZ-ITSO-Dev/UniAuth', 'frontend-check',
                          {'check-command': 'pnpm run lint', 'node-version': '20',

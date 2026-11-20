@@ -188,6 +188,8 @@ jobs:
         with:
           version: ${{ steps.policy.outputs.golangci-version }}
           working-directory: ${{ steps.policy.outputs.working-directory }}
+          # 冷缓存首跑（尤其大仓库）可能超过内置默认 5m；分析超时集中配置。
+          args: --timeout=${{ steps.policy.outputs.analysis-timeout }}
           github-token: ${{ github.token }}
 
       - name: 跳过 Go 代码检查
